@@ -1,0 +1,43 @@
+diff --git a/executable/SequentialMain.hs b/executable/SequentialMain.hs
+index 2ad59a5..884cd08 100644
+--- a/executable/SequentialMain.hs
++++ b/executable/SequentialMain.hs
+@@ -72,7 +72,8 @@ data MainFlags =
+     flags_goal_heuristic :: Bool,
+     flags_funweight :: Float,
+     flags_dump_proof :: Maybe FilePath,
+-    flags_dump_state :: Maybe FilePath }
++    flags_dump_state :: Maybe FilePath,
++    flags_print_stats :: Bool }
+ 
+ parseMainFlags :: OptionParser MainFlags
+ parseMainFlags = do
+@@ -186,6 +187,10 @@ parseMainFlags = do
+       ["Dump prover state to this file on termination (off by default)."]
+       Nothing (Just <$> argFile)
+ 
++  flags_print_stats <-
++    expert $
++    inGroup "Output options" $
++    bool "print-stats" ["Print search statistics (critical pairs considered, rules created) as a TPTP comment at the end of the run (off by default)."] False
+   return MainFlags{..}
+ 
+ parseConfig :: OptionParser (Config Constant)
+@@ -997,6 +1002,17 @@ runTwee globals (TSTPFlags tstp) horn precedence config0 flags@MainFlags{..} lat
+   state <- complete output config withBackwardsGoal
+   line
+ 
++  -- Deterministic cost measures, for use as learning labels instead of
++  -- wall-clock time. st_considered counts dequeued critical pairs (the same
++  -- counter --max-cps limits); st_next_active counts rules ever created.
++  when flags_print_stats $ do
++    putStrLn $
++      "% twee-stats: considered_cps=" ++ show (st_considered state) ++
++      " rules_created=" ++ show (unId (st_next_active state)) ++
++      " active_rules=" ++ show (IntMap.size (st_active_set state)) ++
++      " solved=" ++ (if solved state then "true" else "false")
++    hFlush stdout
++
+   case flags_dump_state of
+     Nothing -> return ()
+     Just dumpStateFile ->
