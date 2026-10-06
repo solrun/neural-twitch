@@ -81,7 +81,7 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
             tmp.write("\n\n" + hints_block(abstractions))
         tmp_path = tmp.name
     cmd = [twee, tmp_path, *BASE_FLAGS, *setting.flags(),
-           "--max-cps", str(max_cps), "--print-stats",
+           "--max-cps", str(max_cps), "--print-stats", "--quiet", "--no-proof",
            *(extra_flags or [])]
     if tptp_root:
         cmd += ["--root", tptp_root]
