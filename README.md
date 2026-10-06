@@ -26,7 +26,8 @@ published with the Twitch paper
 
 ```bash
 git clone --depth 1 https://github.com/WeAreDevo/ijcar26-twee_abstractions
-pip install pyyaml pytest
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 python -m nt.build_dataset ijcar26-twee_abstractions/data/experiments data/labels.jsonl
 python -m nt.analyze data/labels.jsonl ijcar26-twee_abstractions/data/TPTP > analysis.md
 python -m pytest tests
