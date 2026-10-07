@@ -40,8 +40,14 @@ Then set `TWEE_SIF` and point `TWEE_PATH` at `slurm/twee-apptainer` in
 ```bash
 ssh <cid>@vera1.c3se.chalmers.se          # from the Chalmers network or VPN
 git clone https://github.com/solrun/neural-twitch
-git clone --depth 1 https://github.com/WeAreDevo/ijcar26-twee_abstractions
+# only the problem files (~3,200 files; the full repo is ~6,000)
+git clone --depth 1 --filter=blob:none --sparse https://github.com/WeAreDevo/ijcar26-twee_abstractions
+git -C ijcar26-twee_abstractions sparse-checkout set data/TPTP
 ```
+
+Cloning on the login node is fine: it only writes to your home directory on
+shared storage. If GitHub isn't reachable from Vera, clone on your laptop and
+`rsync` the folders over.
 
 Copy only TPTP's `Axioms/` directory, not the whole TPTP tree: the home
 directory has a 60,000-file quota (check usage with `C3SE_quota`).
@@ -62,10 +68,12 @@ pip install -r requirements.txt
 cp slurm/vera.env.example slurm/vera.env   # then edit: module name, paths
 ```
 
-Check it end to end on the login node with one quick problem:
+Check it end to end in a short interactive job (login nodes are shared, so
+keep even small Twee runs off them):
 
 ```bash
-source slurm/vera.env
+srun -A <project> -p vera -n 1 -c 2 -t 0:10:00 --pty bash
+cd ~/neural-twitch && source slurm/vera.env
 python -m nt.calibrate data/labels.jsonl $TWITCH_DIR/data/TPTP /tmp/check.jsonl \
     --limit 2 --wall-timeout 60 --workers 2
 ```
