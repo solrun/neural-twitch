@@ -1,0 +1,22 @@
+# Apptainer image with the patched Twee (fallback if the static binary
+# doesn't run on Vera). Build from the repository root on a Vera login node:
+#   apptainer build ~/containers/twee.sif slurm/twee.def
+Bootstrap: docker
+From: haskell:9.10
+
+%files
+    twee-print-stats.patch /opt/patches/
+    twee-deterministic.patch /opt/patches/
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends libgmp-dev git
+    git clone https://github.com/nick8325/twee /opt/twee
+    cd /opt/twee
+    git apply /opt/patches/twee-print-stats.patch
+    git apply /opt/patches/twee-deterministic.patch
+    cabal update
+    cabal install exe:twee --installdir=/usr/local/bin --install-method=copy
+    rm -rf /root/.cabal/packages /opt/twee/dist-newstyle
+
+%test
+    twee --help | grep -q -- --deterministic

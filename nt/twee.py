@@ -35,6 +35,26 @@ CPS_PER_SECOND = 2000
 BASE_FLAGS = ["--kbo-weight0-unary", "--deterministic", str(CPS_PER_SECOND)]
 
 
+def default_workers() -> int:
+    """CPUs this process may use. Under Slurm, os.cpu_count() reports the
+    whole node, not the allocation, so use the affinity mask instead."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # not Linux
+        return os.cpu_count() or 1
+
+
+def select_shard(problems: list[str], spec: str) -> list[str]:
+    """Problems for shard "K/N" (0 <= K < N): every N-th problem starting at
+    K, so shards get a similar mix of easy and hard problems."""
+    if not spec:
+        return problems
+    k, n = (int(x) for x in spec.split("/"))
+    if not 0 <= k < n:
+        raise ValueError(f"bad shard {spec!r}: need 0 <= K < N")
+    return problems[k::n]
+
+
 @dataclass
 class Setting:
     """A Twee abstraction-weight setting (Twitch Sect. 4.1)."""

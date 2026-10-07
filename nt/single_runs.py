@@ -76,9 +76,11 @@ def main() -> None:
     ap.add_argument("out")
     ap.add_argument("--max-cps", type=int, default=2_000_000)
     ap.add_argument("--wall-timeout", type=float, default=1200.0)
-    ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
+    ap.add_argument("--workers", type=int, default=twee.default_workers())
     ap.add_argument("--problems", default="", help="comma-separated domain prefixes")
     ap.add_argument("--limit", type=int, default=0, help="max problems (for a trial run)")
+    ap.add_argument("--shard", default="", metavar="K/N",
+                    help="run only shard K of N (for Slurm job arrays)")
     ap.add_argument("--no-flatten", action="store_true",
                     help="run with goal flattening off (ablation)")
     args = ap.parse_args()
@@ -91,6 +93,7 @@ def main() -> None:
                       and (not domains or p[:3] in domains))
     if args.limit:
         problems = problems[:args.limit]
+    problems = twee.select_shard(problems, args.shard)
     jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], not args.no_flatten)]
     print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs")
 

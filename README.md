@@ -21,6 +21,8 @@ published with the Twitch paper
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
 | `nt/single_runs.py` | The single-abstraction experiment (next step 2 below). |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
+| `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
+| `slurm/` | Job scripts and setup guide for the Vera cluster (`slurm/README.md`). |
 
 ## Reproduce
 

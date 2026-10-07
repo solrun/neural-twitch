@@ -41,8 +41,10 @@ def main() -> None:
     ap.add_argument("tptp_dir")
     ap.add_argument("out")
     ap.add_argument("--wall-timeout", type=float, default=1000.0)
-    ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
+    ap.add_argument("--workers", type=int, default=twee.default_workers())
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--shard", default="", metavar="K/N",
+                    help="run only shard K of N (for Slurm job arrays)")
     ap.add_argument("--no-flatten", action="store_true",
                     help="run with goal flattening off (ablation)")
     args = ap.parse_args()
@@ -52,6 +54,7 @@ def main() -> None:
     problems = sorted(p for p in best_sets(args.labels) if p in paths)
     if args.limit:
         problems = problems[:args.limit]
+    problems = twee.select_shard(problems, args.shard)
     print(f"{len(problems)} problems x 2 runs, wall cap {args.wall_timeout}s")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

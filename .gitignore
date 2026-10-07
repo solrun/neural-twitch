@@ -3,3 +3,5 @@ __pycache__/
 out/
 .env
 .venv/
+logs/
+slurm/vera.env

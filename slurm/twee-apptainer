@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs Twee from the Apptainer image in $TWEE_SIF; use as TWEE_PATH.
+# Binds the job's node-local $TMPDIR, where nt/twee.py writes problem files.
+set -euo pipefail
+binds=()
+if [[ -n "${TMPDIR:-}" ]]; then binds=(-B "$TMPDIR"); fi
+exec apptainer exec "${binds[@]}" "$TWEE_SIF" twee "$@"
