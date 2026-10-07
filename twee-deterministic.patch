@@ -1,0 +1,140 @@
+diff --git a/executable/SequentialMain.hs b/executable/SequentialMain.hs
+index 884cd08..976bd55 100644
+--- a/executable/SequentialMain.hs
++++ b/executable/SequentialMain.hs
+@@ -211,6 +211,14 @@ parseConfig = do
+   cfg_max_time <-
+     inGroup "Resource limits" $
+     flag "max-time" ["Give up after running for this long in seconds (unlimited by default)."] Nothing (Just <$> argNum)
++  cfg_cps_per_second <-
++    expert $
++    inGroup "Completion heuristics" $
++    flag "deterministic"
++      ["Make runs reproducible: schedule periodic housekeeping (interreduction, queue",
++       "simplification, goal recomputation) by critical pairs considered instead of",
++       "CPU time, counting this many critical pairs as one second (off by default)."]
++      Nothing (Just <$> argNum)
+   cfg_simplify <-
+     expert $
+     inGroup "Completion heuristics" $
+diff --git a/src/Twee.hs b/src/Twee.hs
+index ff2bbc2..fbe8d15 100644
+--- a/src/Twee.hs
++++ b/src/Twee.hs
+@@ -59,6 +59,10 @@ data Config f =
+     cfg_max_cp_depth              :: Int,
+     cfg_max_rules                 :: Int,
+     cfg_max_time                  :: Maybe Double,
++    -- If set, run housekeeping tasks on a schedule measured in critical
++    -- pairs considered rather than CPU time: this many CPs count as one
++    -- second. Makes runs reproducible.
++    cfg_cps_per_second            :: Maybe Int64,
+     cfg_simplify                  :: Bool,
+     cfg_renormalise_percent       :: Int,
+     cfg_cp_sample_size            :: Int,
+@@ -110,6 +114,7 @@ defaultConfig =
+     cfg_max_cp_depth = maxBound,
+     cfg_max_rules = maxBound,
+     cfg_max_time = Nothing,
++    cfg_cps_per_second = Nothing,
+     cfg_simplify = True,
+     cfg_renormalise_percent = 5,
+     cfg_renormalise_threshold = 20,
+@@ -974,27 +979,40 @@ data Output m f =
+ complete :: (Function f, MonadIO m) => Output m f -> Config f -> State f -> m (State f)
+ complete Output{..} config@Config{..} state =
+   flip StateM.execStateT state $ do
++    let
++      -- CPU time by default; with cfg_cps_per_second, a virtual clock
++      -- driven by the number of critical pairs considered so far.
++      -- Housekeeping does not advance the virtual clock, so the time
++      -- budgets below are effectively ignored and each task runs at its
++      -- maximum frequency.
++      housekeeping freq budget what =
++        case cfg_cps_per_second of
++          Nothing -> newTask freq budget what
++          Just n ->
++            newTaskWithClock
++              (StateM.gets (\st -> toInteger (st_considered st) * 10^(12::Int) `div` toInteger n))
++              freq budget what
+     tasks <- sequence
+-      [newTask 10 (fromIntegral cfg_renormalise_percent / 100) $ do
++      [housekeeping 10 (fromIntegral cfg_renormalise_percent / 100) $ do
+          state <- StateM.get
+          when (shouldSimplifyQueue config state) $ do
+            lift $ output_message SimplifyQueue
+            StateM.put $! simplifyQueue config state,
+-       newTask 1 0.02 $ do
++       housekeeping 1 0.02 $ do
+          when cfg_complete_subsets $ do
+            state <- StateM.get
+            let !state' = checkCompleteness config state
+            lift $ output_message (NotComplete (st_not_complete state'))
+            StateM.put $! state',
+-       newTask 1 0.05 $ do
++       housekeeping 1 0.05 $ do
+          when cfg_simplify $ do
+            lift $ output_message Interreduce
+            state <- StateM.get
+            StateM.put $! simplifySample $! interreduce config state,
+-       newTask 1 0.02 $ do
++       housekeeping 1 0.02 $ do
+           state <- StateM.get
+           StateM.put $! recomputeGoals config state,
+-       newTask 60 0.01 $ do
++       housekeeping 60 0.01 $ do
+           State{..} <- StateM.get
+           let !n = Queue.size st_queue
+           lift $ output_message (Status n)]
+diff --git a/src/Twee/Task.hs b/src/Twee/Task.hs
+index 742d8a1..c43b482 100644
+--- a/src/Twee/Task.hs
++++ b/src/Twee/Task.hs
+@@ -1,5 +1,5 @@
+ -- | A module which can run housekeeping tasks every so often.
+-module Twee.Task(Task, newTask, checkTask) where
++module Twee.Task(Task, newTask, newTaskWithClock, checkTask) where
+ 
+ import System.CPUTime
+ import Data.IORef
+@@ -18,7 +18,9 @@ data TaskData m a =
+     -- What proportion of our time should we spend on the task?
+     task_budget :: !Double,
+     -- The task itself
+-    task_what :: m a }
++    task_what :: m a,
++    -- The clock used to measure time, in picoseconds
++    task_clock :: m Integer }
+ 
+ -- | A task which runs in the monad @m@ and produces a value of type @a@.
+ newtype Task m a = Task (IORef (TaskData m a))
+@@ -28,18 +30,24 @@ newtype Task m a = Task (IORef (TaskData m a))
+ -- task should run, at most. The second argument is the maximum
+ -- percentage of time that should be spent on the task.
+ newTask :: MonadIO m => Double -> Double -> m a -> m (Task m a)
+-newTask freq budget what = liftIO $ do
+-  now <- getCPUTime
+-  Task <$> newIORef (TaskData now now 0 freq budget what)
++newTask = newTaskWithClock (liftIO getCPUTime)
++
++-- | Like 'newTask', but measure time with the given clock (in picoseconds)
++-- instead of CPU time. With a clock that only depends on the prover's own
++-- progress, the task schedule is deterministic.
++newTaskWithClock :: MonadIO m => m Integer -> Double -> Double -> m a -> m (Task m a)
++newTaskWithClock clock freq budget what = do
++  now <- clock
++  liftIO $ Task <$> newIORef (TaskData now now 0 freq budget what clock)
+ 
+ -- | Run a task if it's time to run it.
+ checkTask :: MonadIO m => Task m a -> m (Maybe a)
+ checkTask (Task ref) = do
+   task@TaskData{..} <- liftIO $ readIORef ref
+-  now <- liftIO getCPUTime
++  now <- task_clock
+   if not (taskDue now task) then return Nothing else do
+     res <- task_what
+-    after <- liftIO getCPUTime
++    after <- task_clock
+     liftIO $ writeIORef ref task {
+       task_last = after,
+       task_spent = task_spent + (after-now) }

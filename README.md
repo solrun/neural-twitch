@@ -69,20 +69,31 @@ Full numbers are in `analysis.md`; the points that affect the plan:
 
 ## Building the patched Twee
 
-The patch is against Twee's GitHub `master` (2.6.2), which already has the
-`--hint-skel-*` flags Twitch uses. It has not been compiled yet.
+Two patches against Twee's GitHub `master` (2.6.2), which already has the
+`--hint-skel-*` flags Twitch uses:
+
+* `twee-print-stats.patch` adds `--print-stats`, which prints the number of
+  critical pairs considered and rules created at the end of a run.
+* `twee-deterministic.patch` adds `--deterministic N`. Twee normally runs its
+  periodic housekeeping (interreduction, queue simplification, goal
+  recomputation) on a CPU-time schedule, so the search depends on machine
+  load: in the first calibration, 213 of 247 problems gave a different CP
+  count on a second run. With `--deterministic N` the schedule is measured in
+  critical pairs instead, with N CPs counting as one second. The housekeeping
+  time budgets are not enforced in this mode, so on very large rule sets
+  housekeeping can take a bigger share of wall time; raise N if that matters.
 
 ```bash
 git clone https://github.com/nick8325/twee && cd twee
 git apply ../neural-twitch/twee-print-stats.patch
+git apply ../neural-twitch/twee-deterministic.patch
 cabal install exe:twee --installdir=$HOME/.local/bin   # needs GMP: libgmp-dev / gmp-devel / brew install gmp
-twee some-problem.p --print-stats --max-cps 1000000
+twee some-problem.p --print-stats --deterministic 2000 --max-cps 1000000
 # last line: % twee-stats: considered_cps=... rules_created=... active_rules=... solved=true
 ```
 
-Check that two runs of the same problem print the same `considered_cps`; if
-they don't, the cost measure isn't deterministic and the labels need a
-different counter.
+`nt/twee.py` passes `--deterministic 2000` on every run. `nt/calibrate.py`
+runs every problem twice and reports any CP-count mismatch.
 
 ## Running the single-abstraction experiment
 
@@ -108,9 +119,9 @@ undefined.
 
 ## Next steps
 
-1. **Deterministic cost in Twee.** Patch written (`twee-print-stats.patch`).
-   It exposes Twee's existing critical-pair counter `st_considered`, the one
-   `--max-cps` already limits. Remaining: compile it and check determinism.
+1. **Deterministic cost in Twee.** Patches written (`twee-print-stats.patch`,
+   `twee-deterministic.patch`). Remaining: rebuild and confirm with
+   `nt.calibrate` that repeated runs give identical CP counts.
 2. **Single-abstraction runs.** Harness written (`nt/single_runs.py`).
    Remaining: calibrate the CP budget and run it. The result answers whether
    individual labels predict set-level speedups.

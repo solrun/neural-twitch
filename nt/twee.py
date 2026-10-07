@@ -1,8 +1,12 @@
 """Run Twee on a TPTP problem with abstraction hints and a deterministic budget.
 
-Requires a Twee built with `twee-print-stats.patch` (adds --print-stats).
-Cost is the number of critical pairs considered, which is deterministic for a
-given problem, hint set and flag set; `--max-cps` turns it into a budget.
+Requires a Twee built with `twee-print-stats.patch` (adds --print-stats) and
+`twee-deterministic.patch` (adds --deterministic). Without the second patch,
+Twee schedules interreduction and queue simplification by CPU time, so the
+search, and the critical-pair count, depend on machine load.
+
+Cost is the number of critical pairs considered; `--max-cps` turns it into a
+budget.
 
 Environment: TWEE_PATH (binary), TPTP_ROOT (for axiom includes).
 """
@@ -20,8 +24,15 @@ _STATS = re.compile(
     r"% twee-stats: considered_cps=(\d+) rules_created=(\d+) "
     r"active_rules=(\d+) solved=(true|false)")
 
-# Flags Twitch always passes (see src/utils.py in the Twitch repo).
-BASE_FLAGS = ["--kbo-weight0-unary"]
+# Critical pairs that count as one second for Twee's housekeeping schedule
+# under --deterministic. About Twee's throughput on a laptop core (the first
+# calibration measured ~2,800 CPs/s), so housekeeping runs roughly as often
+# as it does in CPU-time mode.
+CPS_PER_SECOND = 2000
+
+# Flags Twitch always passes (see src/utils.py in the Twitch repo), plus
+# deterministic scheduling.
+BASE_FLAGS = ["--kbo-weight0-unary", "--deterministic", str(CPS_PER_SECOND)]
 
 
 @dataclass
