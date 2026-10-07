@@ -109,7 +109,8 @@ python -m nt.single_runs data/labels.jsonl ijcar26-twee_abstractions/data/TPTP o
 ```
 
 For each problem it takes the best set from the existing runs and, under three
-weight settings (`cost 1`, `factor 0.2`, `factor 0.5`), runs the baseline, the
+weight settings (goal flattening on, as in Twee's default; `--no-flatten` for
+the ablation) (`cost 1`, `factor 0.2`, `factor 0.5`), runs the baseline, the
 full set and each abstraction alone. Every row gets `ratio` = critical pairs
 relative to the baseline under the same setting.
 

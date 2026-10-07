@@ -30,8 +30,8 @@ from nt.twee import Setting
 UNLIMITED = 10**12
 
 
-def _run(problem, path, rep, wall_timeout):
-    r = twee.run(path, [], Setting(), UNLIMITED, wall_timeout)
+def _run(problem, path, rep, wall_timeout, flatten):
+    r = twee.run(path, [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout)
     return {"problem": problem, "rep": rep, **r.to_dict()}
 
 
@@ -43,6 +43,8 @@ def main() -> None:
     ap.add_argument("--wall-timeout", type=float, default=1000.0)
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--no-flatten", action="store_true",
+                    help="run with goal flattening off (ablation)")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -55,7 +57,8 @@ def main() -> None:
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     rows = []
     with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout)
+        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout,
+                          not args.no_flatten)
                 for p in problems for rep in (0, 1)]
         for i, f in enumerate(as_completed(futs), 1):
             r = f.result()

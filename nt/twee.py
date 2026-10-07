@@ -40,7 +40,9 @@ class Setting:
     """A Twee abstraction-weight setting (Twitch Sect. 4.1)."""
     factor: float = 0.5        # --hint-skel-factor
     cost: float = 0.0          # --hint-skel-cost
-    flatten_goal: bool = False
+    # Twee's default. Off only for the flattening ablation (--no-flatten in
+    # nt.calibrate and nt.single_runs).
+    flatten_goal: bool = True
 
     def flags(self) -> list[str]:
         return ["--hint-skel-factor", str(self.factor),

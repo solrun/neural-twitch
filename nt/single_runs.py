@@ -2,7 +2,7 @@
 
 For every problem with a measurable baseline, take its best-performing local
 abstraction set from the existing Twitch runs, then under each weight setting
-run Twee
+(goal flattening on by default) run Twee
   * with no hints (baseline),
   * with the full set,
   * with each abstraction alone,
@@ -33,7 +33,10 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from nt import twee
 from nt.twee import Setting
 
-SETTINGS = [Setting(factor=0.0, cost=1.0), Setting(factor=0.2), Setting(factor=0.5)]
+def settings(flatten: bool) -> list[Setting]:
+    return [Setting(factor=0.0, cost=1.0, flatten_goal=flatten),
+            Setting(factor=0.2, flatten_goal=flatten),
+            Setting(factor=0.5, flatten_goal=flatten)]
 MIN_BASE = 1.0  # seconds, as in nt.analyze
 
 
@@ -50,8 +53,8 @@ def best_sets(labels_path: str) -> dict[str, list[str]]:
     return {p: r["abstractions"] for p, r in best.items()}
 
 
-def jobs_for(problem: str, path: str, abstractions: list[str]):
-    for s in SETTINGS:
+def jobs_for(problem: str, path: str, abstractions: list[str], flatten: bool = True):
+    for s in settings(flatten):
         yield problem, path, s, "base", []
         yield problem, path, s, "set", abstractions
         if len(abstractions) > 1:
@@ -76,6 +79,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1)
     ap.add_argument("--problems", default="", help="comma-separated domain prefixes")
     ap.add_argument("--limit", type=int, default=0, help="max problems (for a trial run)")
+    ap.add_argument("--no-flatten", action="store_true",
+                    help="run with goal flattening off (ablation)")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -86,7 +91,7 @@ def main() -> None:
                       and (not domains or p[:3] in domains))
     if args.limit:
         problems = problems[:args.limit]
-    jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p])]
+    jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], not args.no_flatten)]
     print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
