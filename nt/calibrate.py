@@ -96,7 +96,7 @@ def report(rows: list[dict]) -> None:
           f"({unproved} timed out or failed).")
     if not cps:
         return
-    q = st.quantiles(cps, n=20) if len(cps) >= 2 else cps * 19
+    q = st.quantiles(cps, n=20, method="inclusive") if len(cps) >= 2 else cps * 19
     print(f"CPs needed: median {st.median(cps):,.0f}, 90th pct {q[17]:,.0f}, "
           f"95th pct {q[18]:,.0f}, max {cps[-1]:,}.")
     walls = [r["wall"] / r["cps"] for r in rows if r["status"] == "proved" and r["cps"]]

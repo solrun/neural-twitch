@@ -4,7 +4,7 @@ Rows: 16875 runs over 1041 problems.
 
 ## 1. Label noise (wall clock)
 
-Baseline time is recorded as the minimum over repeated base runs. For 307 problems with baseline >= 1.0s, mean/min baseline time has median 1.03, 90th percentile 1.18, max 2.80.
+Baseline time is recorded as the minimum over repeated base runs. For 307 problems with baseline >= 1.0s, mean/min baseline time has median 1.03, 90th percentile 1.17, max 2.80.
 
 19 (problem, set, config) triples were run more than once; max/min hinted time across repeats has median 1.01, max 1.84.
 

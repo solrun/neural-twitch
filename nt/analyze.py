@@ -113,7 +113,7 @@ def main(labels_path: str, tptp_dir: str) -> None:
             {r["problem"]: r for r in rows if r["base_time"] and r["mean_base_time"]
              and r["base_time"] >= MIN_BASE}.values()]
     if gaps:
-        q = st.quantiles(gaps, n=10)
+        q = st.quantiles(gaps, n=10, method="inclusive")
         out(f"Baseline time is recorded as the minimum over repeated base runs. For "
             f"{len(gaps)} problems with baseline >= {MIN_BASE}s, mean/min baseline time has "
             f"median {st.median(gaps):.2f}, 90th percentile {q[-1]:.2f}, max {max(gaps):.2f}.\n")
