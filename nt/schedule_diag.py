@@ -20,6 +20,9 @@ Usage:
     python -m nt.schedule_diag data/labels.jsonl <twitch_repo>/data/TPTP out/schedule_diag.jsonl \
         [--problems GRP770-1,LAT074-1] [--flatten off] [--schedules none,2000,5000,7000] \
         [--reps 2] [--wall-timeout 1000] [--workers N]
+
+    # print the table from an existing (possibly partial) output file
+    python -m nt.schedule_diag data/labels.jsonl <twitch_repo>/data/TPTP out/schedule_diag.jsonl --report
 """
 
 from __future__ import annotations
@@ -64,6 +67,8 @@ def main() -> None:
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--wall-timeout", type=float, default=1000.0)
     ap.add_argument("--workers", type=int, default=twee.default_workers())
+    ap.add_argument("--report", action="store_true",
+                    help="don't run anything; print the table from the output file")
     args = ap.parse_args()
 
     flatten = args.flatten == "on"
@@ -74,10 +79,17 @@ def main() -> None:
     if missing:
         raise SystemExit(f"problem files not found: {missing}")
     schedules = [s for s in args.schedules.split(",") if s]
+    if args.report:
+        rows = [json.loads(l) for l in open(args.out) if l.strip()]
+        report(rows, problems, schedules, args.reps, flatten, args.labels)
+        return
     jobs = [(p, paths[p], s, rep) for p in problems for s in schedules
             for rep in range(args.reps)]
     print(f"{len(jobs)} runs, flattening {args.flatten}, wall cap {args.wall_timeout}s, "
-          f"{args.workers} workers")
+          f"{args.workers} workers", flush=True)
+    if args.workers < len(jobs):
+        print(f"  fewer workers than runs: expect up to "
+              f"{-(-len(jobs) // args.workers)} rounds of {args.wall_timeout:.0f}s", flush=True)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     rows = []
@@ -90,13 +102,17 @@ def main() -> None:
             out.write(json.dumps(r) + "\n")
             out.flush()
 
+    report(rows, problems, schedules, args.reps, flatten, args.labels)
+
+
+def report(rows, problems, schedules, reps, flatten, labels) -> None:
     errors = [r for r in rows if r["status"] == "error"]
     if errors:
         print(f"\n{len(errors)} runs failed. First error:\n{errors[0]['error'][-1500:]}")
 
-    tw = twitch_baselines(args.labels)
-    head = ["problem", "Twitch"] + [f"{s} #{i + 1}" if args.reps > 1 else s
-                                     for s in schedules for i in range(args.reps)]
+    tw = twitch_baselines(labels)
+    head = ["problem", "Twitch"] + [f"{s} #{i + 1}" if reps > 1 else s
+                                     for s in schedules for i in range(reps)]
     width = 16
     print("\nwall time / critical pairs; 'none' = Twee's normal CPU-time schedule")
     print("".join(h.ljust(width) for h in head))
@@ -104,7 +120,8 @@ def main() -> None:
     for p in problems:
         t = tw.get((p, flatten), "?")
         line = [p, "timeout" if t is None else t if t == "?" else f"{t:.0f}s"]
-        line += [cell(by[p, s, i]) for s in schedules for i in range(args.reps)]
+        line += [cell(by[p, s, i]) if (p, s, i) in by else "(not run)"
+                 for s in schedules for i in range(reps)]
         print("".join(str(c).ljust(width) for c in line))
 
 
