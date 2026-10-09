@@ -19,4 +19,4 @@ From: haskell:9.10
     rm -rf /root/.cabal/packages /opt/twee/dist-newstyle
 
 %test
-    twee --help | grep -q -- --deterministic
+    twee --expert-help | grep -q -- --deterministic-alloc
