@@ -31,9 +31,11 @@ from nt.twee import Setting
 UNLIMITED = 10**12
 
 
-def _run(problem, path, rep, wall_timeout, flatten):
-    r = twee.run(path, [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout)
-    return {"problem": problem, "flatten": flatten, "rep": rep, **r.to_dict()}
+def _run(problem, path, rep, wall_timeout, flatten, schedule):
+    r = twee.run(path, [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout,
+                 schedule=schedule)
+    return {"problem": problem, "flatten": flatten, "rep": rep,
+            "schedule": schedule, **r.to_dict()}
 
 
 def main() -> None:
@@ -49,6 +51,10 @@ def main() -> None:
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: calibrate with it on and off (default), "
                          "or only one of them")
+    ap.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE,
+                    help="housekeeping schedule: cps:N (--deterministic), alloc:N "
+                         "(--deterministic-alloc) or none (CPU time, not reproducible); "
+                         f"default {twee.DEFAULT_SCHEDULE}")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -59,12 +65,13 @@ def main() -> None:
     problems = twee.select_shard(problems, args.shard)
     modes = FLATTEN_MODES[args.flatten]
     print(f"{len(problems)} problems x {len(modes)} flattening settings x 2 runs, "
-          f"wall cap {args.wall_timeout}s")
+          f"wall cap {args.wall_timeout}s, schedule {args.schedule}")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     rows = []
     with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout, flatten)
+        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout, flatten,
+                          args.schedule)
                 for p in problems for flatten in modes for rep in (0, 1)]
         for i, f in enumerate(as_completed(futs), 1):
             r = f.result()

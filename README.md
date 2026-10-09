@@ -127,18 +127,29 @@ Two patches against Twee's GitHub `master` (2.6.2), which already has the
   time budgets are not enforced in this mode, so on very large rule sets
   housekeeping can take a bigger share of wall time; raise N if that matters.
 
+  It also adds `--deterministic-alloc N`, which measures the schedule in bytes
+  allocated by the Haskell runtime, with N bytes counting as one second.
+  Critical pairs are a poor clock because their cost varies more than tenfold
+  between problems: LAT074-1 runs at ~700 CPs/s, so at
+  `--deterministic 7000` it housekeeps about ten times less often than normal
+  Twee. Allocation tracks CPU time much more closely, and housekeeping
+  allocates too, so the time budgets apply again. `--print-stats` now also
+  reports `allocated_bytes` and `cpu_seconds` for the whole run, which is how
+  to choose N (see `nt.schedule_diag`).
+
 ```bash
 git clone https://github.com/nick8325/twee && cd twee
 git apply ../neural-twitch/twee-print-stats.patch
 git apply ../neural-twitch/twee-deterministic.patch
 cabal install exe:twee --installdir=$HOME/.local/bin   # needs GMP: libgmp-dev / gmp-devel / brew install gmp
 twee some-problem.p --print-stats --deterministic 2000 --max-cps 1000000
-# last line: % twee-stats: considered_cps=... rules_created=... active_rules=... solved=true
+# last line: % twee-stats: considered_cps=... rules_created=... active_rules=... solved=true allocated_bytes=... cpu_seconds=...
 ```
 
-`nt/twee.py` passes `--deterministic 2000` on every run. `nt/calibrate.py`
-runs every problem twice under each flattening setting and reports any
-CP-count mismatch.
+`nt/twee.py` passes `--deterministic 7000` (`CPS_PER_SECOND`) by default.
+`nt.calibrate` and `nt.single_runs` take `--schedule cps:N`, `alloc:N` or
+`none` to change it. `nt/calibrate.py` runs every problem twice under each
+flattening setting and reports any CP-count mismatch.
 
 ## Running the single-abstraction experiment
 

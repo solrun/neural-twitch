@@ -1,8 +1,17 @@
 diff --git a/executable/SequentialMain.hs b/executable/SequentialMain.hs
-index 884cd08..976bd55 100644
+index 884cd08..cb4f034 100644
 --- a/executable/SequentialMain.hs
 +++ b/executable/SequentialMain.hs
-@@ -211,6 +211,14 @@ parseConfig = do
+@@ -37,6 +37,8 @@ import Jukebox.Tools.HornToUnit
+ import qualified Data.IntMap.Strict as IntMap
+ import System.IO
+ import System.Exit
++import System.Mem (getAllocationCounter)
++import System.CPUTime (getCPUTime)
+ import qualified Data.Set as Set
+ import qualified Data.Intern as Intern
+ import System.Console.ANSI
+@@ -211,6 +213,23 @@ parseConfig = do
    cfg_max_time <-
      inGroup "Resource limits" $
      flag "max-time" ["Give up after running for this long in seconds (unlimited by default)."] Nothing (Just <$> argNum)
@@ -14,14 +23,41 @@ index 884cd08..976bd55 100644
 +       "simplification, goal recomputation) by critical pairs considered instead of",
 +       "CPU time, counting this many critical pairs as one second (off by default)."]
 +      Nothing (Just <$> argNum)
++  cfg_alloc_per_second <-
++    expert $
++    inGroup "Completion heuristics" $
++    flag "deterministic-alloc"
++      ["Make runs reproducible: schedule periodic housekeeping by bytes allocated",
++       "instead of CPU time, counting this many bytes as one second. Unlike",
++       "--deterministic, time spent on housekeeping counts, so each task's time",
++       "budget applies. Takes precedence over --deterministic (off by default)."]
++      Nothing (Just <$> argNum)
    cfg_simplify <-
      expert $
      inGroup "Completion heuristics" $
+@@ -1006,11 +1025,16 @@ runTwee globals (TSTPFlags tstp) horn precedence config0 flags@MainFlags{..} lat
+   -- wall-clock time. st_considered counts dequeued critical pairs (the same
+   -- counter --max-cps limits); st_next_active counts rules ever created.
+   when flags_print_stats $ do
++    allocated <- getAllocationCounter
++    cpu <- getCPUTime
+     putStrLn $
+       "% twee-stats: considered_cps=" ++ show (st_considered state) ++
+       " rules_created=" ++ show (unId (st_next_active state)) ++
+       " active_rules=" ++ show (IntMap.size (st_active_set state)) ++
+-      " solved=" ++ (if solved state then "true" else "false")
++      " solved=" ++ (if solved state then "true" else "false") ++
++      -- Totals for the whole run, for choosing --deterministic-alloc.
++      " allocated_bytes=" ++ show (negate (toInteger allocated)) ++
++      " cpu_seconds=" ++ show (fromInteger cpu / 1e12 :: Double)
+     hFlush stdout
+ 
+   case flags_dump_state of
 diff --git a/src/Twee.hs b/src/Twee.hs
-index ff2bbc2..fbe8d15 100644
+index ff2bbc2..9845457 100644
 --- a/src/Twee.hs
 +++ b/src/Twee.hs
-@@ -59,6 +59,10 @@ data Config f =
+@@ -59,6 +59,15 @@ data Config f =
      cfg_max_cp_depth              :: Int,
      cfg_max_rules                 :: Int,
      cfg_max_time                  :: Maybe Double,
@@ -29,34 +65,43 @@ index ff2bbc2..fbe8d15 100644
 +    -- pairs considered rather than CPU time: this many CPs count as one
 +    -- second. Makes runs reproducible.
 +    cfg_cps_per_second            :: Maybe Int64,
++    -- If set, run housekeeping tasks on a schedule measured in bytes
++    -- allocated: this many bytes count as one second. Reproducible, and
++    -- housekeeping advances this clock, so task budgets apply. Takes
++    -- precedence over cfg_cps_per_second.
++    cfg_alloc_per_second          :: Maybe Int64,
      cfg_simplify                  :: Bool,
      cfg_renormalise_percent       :: Int,
      cfg_cp_sample_size            :: Int,
-@@ -110,6 +114,7 @@ defaultConfig =
+@@ -110,6 +119,8 @@ defaultConfig =
      cfg_max_cp_depth = maxBound,
      cfg_max_rules = maxBound,
      cfg_max_time = Nothing,
 +    cfg_cps_per_second = Nothing,
++    cfg_alloc_per_second = Nothing,
      cfg_simplify = True,
      cfg_renormalise_percent = 5,
      cfg_renormalise_threshold = 20,
-@@ -974,27 +979,40 @@ data Output m f =
+@@ -974,27 +985,43 @@ data Output m f =
  complete :: (Function f, MonadIO m) => Output m f -> Config f -> State f -> m (State f)
  complete Output{..} config@Config{..} state =
    flip StateM.execStateT state $ do
 +    let
-+      -- CPU time by default; with cfg_cps_per_second, a virtual clock
-+      -- driven by the number of critical pairs considered so far.
-+      -- Housekeeping does not advance the virtual clock, so the time
-+      -- budgets below are effectively ignored and each task runs at its
-+      -- maximum frequency.
++      -- CPU time by default. With cfg_alloc_per_second, a virtual clock
++      -- driven by the bytes allocated so far; housekeeping allocates too,
++      -- so the time budgets below still apply. With cfg_cps_per_second, a
++      -- virtual clock driven by the number of critical pairs considered so
++      -- far; housekeeping does not advance it, so the time budgets are
++      -- effectively ignored and each task runs at its maximum frequency.
 +      housekeeping freq budget what =
-+        case cfg_cps_per_second of
-+          Nothing -> newTask freq budget what
-+          Just n ->
++        case (cfg_alloc_per_second, cfg_cps_per_second) of
++          (Just n, _) ->
++            newTaskWithClock (allocationClock n) freq budget what
++          (Nothing, Just n) ->
 +            newTaskWithClock
 +              (StateM.gets (\st -> toInteger (st_considered st) * 10^(12::Int) `div` toInteger n))
 +              freq budget what
++          (Nothing, Nothing) -> newTask freq budget what
      tasks <- sequence
 -      [newTask 10 (fromIntegral cfg_renormalise_percent / 100) $ do
 +      [housekeeping 10 (fromIntegral cfg_renormalise_percent / 100) $ do
@@ -87,17 +132,21 @@ index ff2bbc2..fbe8d15 100644
            let !n = Queue.size st_queue
            lift $ output_message (Status n)]
 diff --git a/src/Twee/Task.hs b/src/Twee/Task.hs
-index 742d8a1..c43b482 100644
+index 742d8a1..4d0f0bc 100644
 --- a/src/Twee/Task.hs
 +++ b/src/Twee/Task.hs
-@@ -1,5 +1,5 @@
+@@ -1,7 +1,9 @@
  -- | A module which can run housekeeping tasks every so often.
 -module Twee.Task(Task, newTask, checkTask) where
-+module Twee.Task(Task, newTask, newTaskWithClock, checkTask) where
++module Twee.Task(Task, newTask, newTaskWithClock, allocationClock, checkTask) where
  
  import System.CPUTime
++import System.Mem (getAllocationCounter)
++import Data.Int (Int64)
  import Data.IORef
-@@ -18,7 +18,9 @@ data TaskData m a =
+ import Control.Monad.IO.Class
+ 
+@@ -18,7 +20,9 @@ data TaskData m a =
      -- What proportion of our time should we spend on the task?
      task_budget :: !Double,
      -- The task itself
@@ -108,7 +157,7 @@ index 742d8a1..c43b482 100644
  
  -- | A task which runs in the monad @m@ and produces a value of type @a@.
  newtype Task m a = Task (IORef (TaskData m a))
-@@ -28,18 +30,24 @@ newtype Task m a = Task (IORef (TaskData m a))
+@@ -28,18 +32,35 @@ newtype Task m a = Task (IORef (TaskData m a))
  -- task should run, at most. The second argument is the maximum
  -- percentage of time that should be spent on the task.
  newTask :: MonadIO m => Double -> Double -> m a -> m (Task m a)
@@ -124,6 +173,17 @@ index 742d8a1..c43b482 100644
 +newTaskWithClock clock freq budget what = do
 +  now <- clock
 +  liftIO $ Task <$> newIORef (TaskData now now 0 freq budget what clock)
++
++-- | A clock that measures the bytes allocated by the current Haskell thread,
++-- counting the given number of bytes as one second. Allocation depends only
++-- on the work the prover does, so a task schedule driven by it is
++-- reproducible, and unlike a count of critical pairs it also advances while
++-- a task runs, so task budgets still apply.
++allocationClock :: MonadIO m => Int64 -> m Integer
++allocationClock bytesPerSecond = liftIO $ do
++  -- The allocation counter counts down from zero as the thread allocates.
++  counter <- getAllocationCounter
++  return (negate (toInteger counter) * 10^(12::Int) `div` toInteger bytesPerSecond)
  
  -- | Run a task if it's time to run it.
  checkTask :: MonadIO m => Task m a -> m (Maybe a)

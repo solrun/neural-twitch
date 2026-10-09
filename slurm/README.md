@@ -116,7 +116,7 @@ sbatch slurm/schedule_diag.sbatch
 python -m nt.schedule_diag data/labels.jsonl $TWITCH_DIR/data/TPTP out/schedule_diag.jsonl --report
 ```
 
-42 runs on 48 cores with a 1000 s cap, so about 17 minutes. Low CPU use in
+48 runs on 48 cores with a 1000 s cap, so about 17 minutes. Low CPU use in
 Grafana is expected: runs that prove quickly free their cores while the rest
 run to the cap. `--report` prints the table from the output file, including a
 partial one from a job that was cut off.

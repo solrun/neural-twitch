@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Housekeeping-schedule diagnostic (nt.schedule_diag): 42 runs, one per core.
+# Housekeeping-schedule diagnostic (nt.schedule_diag): 48 runs, one per core.
 #   mkdir -p logs out
 #   sbatch slurm/schedule_diag.sbatch
 #   python -m nt.schedule_diag data/labels.jsonl "$TWITCH_DIR/data/TPTP" out/schedule_diag.jsonl --report

@@ -1,8 +1,9 @@
 """How much does the housekeeping schedule change Twee's search?
 
 Runs baselines (no hints) on a few problems under Twee's normal CPU-time
-schedule and under `--deterministic N` for several N, and prints them next to
-Twitch's baseline time. The default problems are the six that Twitch proved
+schedule, under `--deterministic N` (critical pairs as the clock) for several
+N, and under `--deterministic-alloc N` (bytes allocated as the clock), and
+prints them next to Twitch's baseline time. The default problems are the six that Twitch proved
 in under 100 s without goal flattening but that time out in our calibration.
 
 Reading the result:
@@ -20,11 +21,17 @@ every repeat and run once.
 Lower --deterministic values mean more frequent housekeeping. On problems
 where Twee manages far fewer CPs per second than the chosen value, the
 deterministic schedule housekeeps much less often than the normal one; the
-low values test whether that explains the outliers.
+low values test whether that explains the outliers. The allocation clock
+also counts time spent on housekeeping, so Twee's per-task time budgets
+apply as they do normally.
+
+Normal-schedule runs report bytes allocated per CPU second (needs the
+current twee-deterministic.patch); that is the value to try for
+--deterministic-alloc.
 
 Usage:
     python -m nt.schedule_diag data/labels.jsonl <twitch_repo>/data/TPTP out/schedule_diag.jsonl \
-        [--problems GRP770-1,LAT074-1] [--flatten off] [--schedules none,500,1000,2000,5000,7000] \
+        [--problems GRP770-1,LAT074-1] [--flatten off] [--schedules none,500,7000,alloc:2000000000] \
         [--reps 2] [--wall-timeout 1000] [--workers N]
 
     # print the table from an existing (possibly partial) output file
@@ -34,6 +41,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import statistics
 import glob
 import json
 import os
@@ -48,9 +56,8 @@ DEFAULT_PROBLEMS = "GRP770-1,LAT074-1,LAT075-1,REL045-1,REL040-3,LAT079-1"
 
 
 def _run(problem, path, schedule, rep, flatten, wall_timeout):
-    det = None if schedule == "none" else int(schedule)
     r = twee.run(path, [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout,
-                 deterministic=det)
+                 schedule=schedule)
     return {"problem": problem, "flatten": flatten, "schedule": schedule,
             "rep": rep, **r.to_dict()}
 
@@ -63,9 +70,19 @@ def columns(schedules, reps):
     return [(s, i) for s in schedules for i in range(n_reps(s, reps))]
 
 
+def label(schedule: str) -> str:
+    """Column header: 'alloc:3000000000' -> 'alloc 3G'."""
+    if schedule.startswith("alloc:"):
+        n = int(schedule[6:])
+        return f"alloc {n / 1e9:g}G" if n >= 1e9 else f"alloc {n / 1e6:g}M"
+    return schedule
+
+
 def cell(r: dict) -> str:
     if r["status"] == "proved":
-        return f"{r['wall']:.0f}s/{r['cps'] / 1e6:.2f}M"
+        cps = r["cps"]
+        work = f"{cps / 1e6:.2f}M" if cps >= 100_000 else f"{cps / 1e3:.1f}k"
+        return f"{r['wall']:.0f}s/{work}"
     return r["status"]
 
 
@@ -76,8 +93,10 @@ def main() -> None:
     ap.add_argument("out")
     ap.add_argument("--problems", default=DEFAULT_PROBLEMS)
     ap.add_argument("--flatten", choices=["on", "off"], default="off")
-    ap.add_argument("--schedules", default="none,500,1000,2000,5000,7000",
-                    help="comma-separated: 'none' (CPU-time schedule) or a --deterministic value")
+    ap.add_argument("--schedules",
+                    default="none,500,1000,2000,7000,alloc:1000000000,alloc:3000000000",
+                    help="comma-separated: 'none' (CPU-time schedule), a --deterministic "
+                         "value (N or cps:N) or alloc:N for --deterministic-alloc")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--wall-timeout", type=float, default=1000.0)
     ap.add_argument("--workers", type=int, default=twee.default_workers())
@@ -123,11 +142,14 @@ def report(rows, problems, schedules, reps, flatten, labels) -> None:
     errors = [r for r in rows if r["status"] == "error"]
     if errors:
         print(f"\n{len(errors)} runs failed. First error:\n{errors[0]['error'][-1500:]}")
+    bad = [s for s in schedules if s != "none" and not twee.schedule_flags(s)]
+    if bad:
+        print(f"unknown schedules: {bad}")
 
     tw = twitch_baselines(labels)
     cols = columns(schedules, reps)
-    head = ["problem", "Twitch"] + [f"{s} #{i + 1}" if n_reps(s, reps) > 1 else s
-                                     for s, i in cols]
+    head = ["problem", "Twitch"] + [f"{label(s)} #{i + 1}" if n_reps(s, reps) > 1
+                                     else label(s) for s, i in cols]
     width = 14
     print("\nwall time / critical pairs; 'none' = Twee's normal CPU-time schedule")
     print("".join(h.ljust(width) for h in head))
@@ -138,6 +160,17 @@ def report(rows, problems, schedules, reps, flatten, labels) -> None:
         line += [cell(by[p, s, i]) if (p, s, i) in by else "(not run)"
                  for s, i in cols]
         print("".join(str(c).ljust(width) for c in line))
+
+    rates = [(r["problem"], r["allocated_bytes"] / r["cpu_seconds"]) for r in rows
+             if r["schedule"] == "none" and r.get("allocated_bytes")
+             and r.get("cpu_seconds") and r["cpu_seconds"] >= 1.0]
+    if rates:
+        vals = sorted(v for _, v in rates)
+        print(f"\nBytes allocated per CPU second, normal schedule ({len(vals)} runs "
+              f">= 1 s): median {statistics.median(vals) / 1e9:.2f} GB/s, "
+              f"min {vals[0] / 1e9:.2f}, max {vals[-1] / 1e9:.2f}")
+        print("  " + ", ".join(f"{p} {v / 1e9:.2f}" for p, v in sorted(rates)))
+        print(f"  --deterministic-alloc {statistics.median(vals):,.0f} matches the median")
 
 
 if __name__ == "__main__":
