@@ -17,7 +17,10 @@ Haskell toolchain:
 ```bash
 cabal install exe:twee --flags=static --installdir=$HOME/twee-static --install-method=copy
 file $HOME/twee-static/twee        # should say "statically linked"
+ssh <cid>@vera1.c3se.chalmers.se 'mkdir -p ~/bin ~/TPTP-v9.2.1'
 scp $HOME/twee-static/twee <cid>@vera1.c3se.chalmers.se:bin/twee
+# check it runs on Vera and has the patch
+ssh <cid>@vera1.c3se.chalmers.se '~/bin/twee --help | grep -- --deterministic'
 ```
 
 Static linking needs the static libraries for GMP, libffi and glibc
