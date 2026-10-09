@@ -2,7 +2,7 @@
 
 For every problem with a measurable baseline, take its best-performing local
 abstraction set from the existing Twitch runs, then under each weight setting
-(goal flattening on by default) run Twee
+and each goal-flattening setting (on and off by default) run Twee
   * with no hints (baseline),
   * with the full set,
   * with each abstraction alone,
@@ -12,7 +12,8 @@ per-abstraction training labels.
 
 Usage:
     python -m nt.single_runs data/labels.jsonl <twitch_repo>/data/TPTP out/single.jsonl \
-        [--max-cps 2000000] [--workers 8] [--problems GRP,LAT] [--limit N]
+        [--max-cps 2000000] [--workers 8] [--problems GRP,LAT] [--limit N] \
+        [--flatten both|on|off]
 
 Output rows (one per run):
     {"problem", "setting", "kind": "base"|"set"|"single",
@@ -33,10 +34,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from nt import twee
 from nt.twee import Setting
 
-def settings(flatten: bool) -> list[Setting]:
-    return [Setting(factor=0.0, cost=1.0, flatten_goal=flatten),
-            Setting(factor=0.2, flatten_goal=flatten),
-            Setting(factor=0.5, flatten_goal=flatten)]
+FLATTEN_MODES = {"both": (True, False), "on": (True,), "off": (False,)}
+
+
+def settings(flatten_modes=(True, False)) -> list[Setting]:
+    return [s for flatten in flatten_modes
+            for s in (Setting(factor=0.0, cost=1.0, flatten_goal=flatten),
+                      Setting(factor=0.2, flatten_goal=flatten),
+                      Setting(factor=0.5, flatten_goal=flatten))]
+
 MIN_BASE = 1.0  # seconds, as in nt.analyze
 
 
@@ -53,8 +59,9 @@ def best_sets(labels_path: str) -> dict[str, list[str]]:
     return {p: r["abstractions"] for p, r in best.items()}
 
 
-def jobs_for(problem: str, path: str, abstractions: list[str], flatten: bool = True):
-    for s in settings(flatten):
+def jobs_for(problem: str, path: str, abstractions: list[str],
+             flatten_modes=(True, False)):
+    for s in settings(flatten_modes):
         yield problem, path, s, "base", []
         yield problem, path, s, "set", abstractions
         if len(abstractions) > 1:
@@ -81,8 +88,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="max problems (for a trial run)")
     ap.add_argument("--shard", default="", metavar="K/N",
                     help="run only shard K of N (for Slurm job arrays)")
-    ap.add_argument("--no-flatten", action="store_true",
-                    help="run with goal flattening off (ablation)")
+    ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
+                    help="goal flattening: run with it on and off (default), "
+                         "or only one of them")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -94,7 +102,7 @@ def main() -> None:
     if args.limit:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
-    jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], not args.no_flatten)]
+    jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten])]
     print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

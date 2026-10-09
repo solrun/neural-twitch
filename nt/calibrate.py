@@ -6,12 +6,13 @@ reports how many critical pairs each baseline proof needs. Pick --max-cps for
 nt.single_runs so that nearly all baselines fit, with headroom for
 abstractions that slow the search down.
 
-Each problem is run twice, which doubles as the determinism check: both runs
-must report the same CP count.
+Each problem is run twice under each goal-flattening setting (on and off by
+default), which doubles as the determinism check: both runs must report the
+same CP count.
 
 Usage:
     python -m nt.calibrate data/labels.jsonl <twitch_repo>/data/TPTP out/calibration.jsonl \
-        [--wall-timeout 1000] [--workers 8] [--limit N]
+        [--wall-timeout 1000] [--workers 8] [--limit N] [--flatten both|on|off]
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import statistics as st
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from nt import twee
-from nt.single_runs import best_sets
+from nt.single_runs import FLATTEN_MODES, best_sets
 from nt.twee import Setting
 
 UNLIMITED = 10**12
@@ -32,7 +33,7 @@ UNLIMITED = 10**12
 
 def _run(problem, path, rep, wall_timeout, flatten):
     r = twee.run(path, [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout)
-    return {"problem": problem, "rep": rep, **r.to_dict()}
+    return {"problem": problem, "flatten": flatten, "rep": rep, **r.to_dict()}
 
 
 def main() -> None:
@@ -45,8 +46,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--shard", default="", metavar="K/N",
                     help="run only shard K of N (for Slurm job arrays)")
-    ap.add_argument("--no-flatten", action="store_true",
-                    help="run with goal flattening off (ablation)")
+    ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
+                    help="goal flattening: calibrate with it on and off (default), "
+                         "or only one of them")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -55,14 +57,15 @@ def main() -> None:
     if args.limit:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
-    print(f"{len(problems)} problems x 2 runs, wall cap {args.wall_timeout}s")
+    modes = FLATTEN_MODES[args.flatten]
+    print(f"{len(problems)} problems x {len(modes)} flattening settings x 2 runs, "
+          f"wall cap {args.wall_timeout}s")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     rows = []
     with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout,
-                          not args.no_flatten)
-                for p in problems for rep in (0, 1)]
+        futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout, flatten)
+                for p in problems for flatten in modes for rep in (0, 1)]
         for i, f in enumerate(as_completed(futs), 1):
             r = f.result()
             rows.append(r)
@@ -74,6 +77,18 @@ def main() -> None:
 
 
 def report(rows: list[dict]) -> None:
+    # Older calibration files have no "flatten" field; they ran with it on.
+    modes = sorted({r.get("flatten", True) for r in rows}, reverse=True)
+    for flatten in modes:
+        sub = [r for r in rows if r.get("flatten", True) == flatten]
+        print(f"\n=== goal flattening {'on' if flatten else 'off'} ===")
+        report_one(sub)
+    if len(modes) > 1:
+        print("\nUse one --max-cps for both settings: the larger of the two "
+              "suggestions above.")
+
+
+def report_one(rows: list[dict]) -> None:
     by = {}
     for r in rows:
         by.setdefault(r["problem"], []).append(r)

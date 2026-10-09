@@ -90,8 +90,9 @@ squeue -u $USER                                # watch progress
 python -m nt.calibrate_report out/calibration_*.jsonl
 ```
 
-8 shards × 32 cores, each shard about 38 problems × 2 runs with a 1000 s cap.
-The 4-hour limit leaves ample room; worst case this is about 1,000 core-hours,
+8 shards × 32 cores, each shard about 38 problems × 2 flattening settings ×
+2 runs with a 1000 s cap: at worst 5 rounds of 1000 s per shard, so the 4-hour
+limit leaves ample room. The allocation is at most about 1,000 core-hours,
 typically much less.
 
 ## Single-abstraction experiment
@@ -99,17 +100,19 @@ typically much less.
 Choose the budget from the calibration report, then:
 
 ```bash
-sbatch -A <project> --array=0-15 --export=ALL,MAX_CPS=<budget> slurm/single_runs.sbatch
+sbatch -A <project> --array=0-31 --export=ALL,MAX_CPS=<budget> slurm/single_runs.sbatch
 cat out/single_*.jsonl > out/single.jsonl
 ```
 
-Ratios are computed within each shard; shards split by problem, so every
-problem's baseline is in the same shard as its abstraction runs.
+Each problem runs under both flattening settings (15,222 Twee runs), so the
+array has 32 shards to keep each one inside the 12-hour limit. Ratios are
+computed within each shard; shards split by problem, so every problem's
+baselines are in the same shard as its abstraction runs.
 
 ## Notes
 
-* Extra script options go through `EXTRA_ARGS`, for example the flattening
-  ablation: `--export=ALL,MAX_CPS=...,EXTRA_ARGS=--no-flatten`.
+* Extra script options go through `EXTRA_ARGS`, for example only one
+  flattening setting: `--export=ALL,MAX_CPS=...,EXTRA_ARGS="--flatten off"`.
 * The scripts write Twee's input files to `$TMPDIR`, which Slurm points at
   the node's local disk, so nothing touches shared storage per run.
 * `--workers` defaults to the CPUs Slurm allocated (not the whole node).

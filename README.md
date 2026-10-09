@@ -137,26 +137,28 @@ twee some-problem.p --print-stats --deterministic 2000 --max-cps 1000000
 ```
 
 `nt/twee.py` passes `--deterministic 2000` on every run. `nt/calibrate.py`
-runs every problem twice and reports any CP-count mismatch.
+runs every problem twice under each flattening setting and reports any
+CP-count mismatch.
 
 ## Running the single-abstraction experiment
 
 ```bash
 export TWEE_PATH=/path/to/patched/twee TPTP_ROOT=/path/to/TPTP-v9.2.1
-# calibrate: determinism check and CP budget (306 problems x 2 baseline runs)
+# calibrate: determinism check and CP budget (306 problems x 2 flattening settings x 2 baseline runs)
 python -m nt.calibrate data/labels.jsonl ijcar26-twee_abstractions/data/TPTP out/calibration.jsonl
 # trial run: 3 LAT problems
 python -m nt.single_runs data/labels.jsonl ijcar26-twee_abstractions/data/TPTP out/single_trial.jsonl \
     --problems LAT --limit 3 --max-cps 2000000
-# full run: 306 problems, 7,611 Twee runs
+# full run: 306 problems, 15,222 Twee runs
 python -m nt.single_runs data/labels.jsonl ijcar26-twee_abstractions/data/TPTP out/single.jsonl
 ```
 
 For each problem it takes the best set from the existing runs and, under three
-weight settings (goal flattening on, as in Twee's default; `--no-flatten` for
-the ablation) (`cost 1`, `factor 0.2`, `factor 0.5`), runs the baseline, the
-full set and each abstraction alone. Every row gets `ratio` = critical pairs
-relative to the baseline under the same setting.
+weight settings (`cost 1`, `factor 0.2`, `factor 0.5`), each with goal
+flattening on and off, runs the baseline, the full set and each abstraction
+alone. Every row gets `ratio` = critical pairs relative to the baseline under
+the same setting. `--flatten on` or `--flatten off` restricts both scripts to
+one flattening setting.
 
 The CP budget needs calibrating once the binary exists: pick it so the
 baseline still proves nearly all 306 problems, otherwise most ratios are

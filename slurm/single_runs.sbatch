@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single-abstraction experiment as a job array: each array task runs one shard.
 #   mkdir -p logs out
-#   sbatch -A <project> --array=0-15 --export=ALL,MAX_CPS=<budget> slurm/single_runs.sbatch
+#   sbatch -A <project> --array=0-31 --export=ALL,MAX_CPS=<budget> slurm/single_runs.sbatch
 #   cat out/single_*.jsonl > out/single.jsonl                 # when all are done
 #SBATCH -J nt-single
 #SBATCH -p vera
