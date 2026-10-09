@@ -28,7 +28,8 @@ _STATS = re.compile(
 # under --deterministic. About Twee's throughput on a laptop core (the first
 # calibration measured ~2,800 CPs/s), so housekeeping runs roughly as often
 # as it does in CPU-time mode.
-CPS_PER_SECOND = 2000
+# Updated to 7000 for running on Vera nodes.
+CPS_PER_SECOND = 7000
 
 # Flags Twitch always passes (see src/utils.py in the Twitch repo), plus
 # deterministic scheduling.
