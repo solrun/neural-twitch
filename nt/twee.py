@@ -31,9 +31,8 @@ _STATS = re.compile(
 # Updated to 7000 for running on Vera nodes.
 CPS_PER_SECOND = 7000
 
-# Flags Twitch always passes (see src/utils.py in the Twitch repo), plus
-# deterministic scheduling.
-BASE_FLAGS = ["--kbo-weight0-unary", "--deterministic", str(CPS_PER_SECOND)]
+# Flags Twitch always passes (see src/utils.py in the Twitch repo).
+BASE_FLAGS = ["--kbo-weight0-unary"]
 
 
 def default_workers() -> int:
@@ -104,7 +103,11 @@ def parse_stats(output: str) -> dict | None:
 def run(problem_path: str, abstractions: list[str], setting: Setting,
         max_cps: int, wall_timeout: float = 600.0,
         twee: str | None = None, tptp_root: str | None = None,
-        extra_flags: list[str] | None = None) -> RunResult:
+        extra_flags: list[str] | None = None,
+        deterministic: int | None = CPS_PER_SECOND) -> RunResult:
+    """Run Twee once. `deterministic` is the --deterministic value (CPs per
+    housekeeping second); None runs Twee's normal CPU-time schedule, whose
+    CP counts are not reproducible."""
     twee = twee or os.environ["TWEE_PATH"]
     tptp_root = tptp_root or os.environ.get("TPTP_ROOT", "")
     with open(problem_path) as f:
@@ -114,7 +117,8 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         if abstractions:
             tmp.write("\n\n" + hints_block(abstractions))
         tmp_path = tmp.name
-    cmd = [twee, tmp_path, *BASE_FLAGS, *setting.flags(),
+    sched = ["--deterministic", str(deterministic)] if deterministic else []
+    cmd = [twee, tmp_path, *BASE_FLAGS, *sched, *setting.flags(),
            "--max-cps", str(max_cps), "--print-stats", "--quiet", "--no-proof",
            *(extra_flags or [])]
     if tptp_root:
