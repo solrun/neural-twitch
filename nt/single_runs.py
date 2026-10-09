@@ -69,11 +69,12 @@ def jobs_for(problem: str, path: str, abstractions: list[str],
                 yield problem, path, s, "single", [a]
 
 
-def _run(job, max_cps, wall_timeout):
+def _run(job, max_cps, wall_timeout, schedule):
     problem, path, setting, kind, abstractions = job
-    res = twee.run(path, abstractions, setting, max_cps, wall_timeout)
+    res = twee.run(path, abstractions, setting, max_cps, wall_timeout,
+                   schedule=schedule)
     return {"problem": problem, "setting": setting.key(), "kind": kind,
-            "abstractions": abstractions, **res.to_dict()}
+            "abstractions": abstractions, "schedule": schedule, **res.to_dict()}
 
 
 def main() -> None:
@@ -91,6 +92,10 @@ def main() -> None:
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: run with it on and off (default), "
                          "or only one of them")
+    ap.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE,
+                    help="housekeeping schedule: cps:N (--deterministic), alloc:N "
+                         "(--deterministic-alloc) or none (CPU time, not reproducible); "
+                         f"default {twee.DEFAULT_SCHEDULE}")
     args = ap.parse_args()
 
     paths = {os.path.basename(p)[:-2]: p
@@ -103,12 +108,14 @@ def main() -> None:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
     jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten])]
-    print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs")
+    print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs, "
+          f"schedule {args.schedule}")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     results = []
     with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(_run, j, args.max_cps, args.wall_timeout) for j in jobs]
+        futs = [ex.submit(_run, j, args.max_cps, args.wall_timeout, args.schedule)
+                for j in jobs]
         for i, f in enumerate(as_completed(futs), 1):
             r = f.result()
             results.append(r)
