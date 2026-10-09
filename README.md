@@ -16,6 +16,9 @@ published with the Twitch paper
 | `nt/analyze.py` | First-milestone analysis: label noise, how often sets help, sensitivity to weight settings, shape of helpful abstractions, recurrence across domains, enumeration-space size. |
 | `analysis.md` | Output of the analysis on the published data. |
 | `data/labels.jsonl` | The dataset (16,875 rows over 1,041 problems). |
+| `twitch_dataset.jsonl` | Curated release of the Twitch runs from the paper's authors, with exact Twee flags per run (see "Twitch's released dataset and Twee flags" below). |
+| `nt/import_twitch_dataset.py` | Adds the runs in `twitch_dataset.jsonl` that `labels.jsonl` lacks to `data/labels_extra.jsonl`. |
+| `data/labels_extra.jsonl` | 649 extra runs (positives only) from the other Twitch stages, in the `labels.jsonl` schema. |
 | `tests/test_terms.py` | Tests for the term module. |
 | `twee-print-stats.patch` | Twee patch adding `--print-stats`: prints the critical-pair count and rule counts at the end of a run. |
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
@@ -68,6 +71,45 @@ Full numbers are in `analysis.md`; the points that affect the plan:
 6. **Only ~306 problems have a baseline long enough (≥1 s) to measure a
    speedup.** That is the training set as it stands, which confirms data
    scarcity as the main risk.
+
+## Twitch's released dataset and Twee flags
+
+`twitch_dataset.jsonl` (3,313 rows, 922 problems) records each run's problem
+clauses, abstraction set, base and hinted time, speedup and Twee flags.
+
+* **Positives only.** Every row has speedup > 1, and at most 3 sets are kept
+  per (problem, configuration). `labels.jsonl` stays the source of negatives.
+* **Mostly runs we already have.** 2,664 rows match a `labels.jsonl` row
+  (same set and configuration, identical times). The other 649 come from
+  stages `nt.build_dataset` does not read: large sets (median 51
+  abstractions, almost all `--hint-skel-factor 0.2`) and 88 partial-proof
+  runs. They cover 175 usable (baseline ≥ 1 s) problems, only 3 of them new.
+  `python -m nt.import_twitch_dataset twitch_dataset.jsonl data/labels.jsonl data/labels_extra.jsonl`
+  writes them out.
+* **Clauses are not self-contained.** `cnf_clauses` holds only the problem
+  file's own clauses (median 3 per problem); TPTP `include`s are not
+  expanded, so the TPTP axiom files are still needed.
+
+Every run passes `--all-lemmas --show-peaks`, then either
+`--hint-skel-factor F --hint-skel-cost C` with `(F, C)` in
+{(0,0), (0,1), (0,2), (0.2,0), (0.5,0), (0.7,0), (1,0)}, or, for the
+partial-proof stage, `--proof-on-saturation --max-time 50` with no hint flags
+recorded; and finally `--flatten-goal` or `--no-flatten-goal`. Checked against
+Twee's source (`executable/SequentialMain.hs`, `src/Twee.hs`):
+
+* `--all-lemmas`, `--show-peaks` and `--proof-on-saturation` only change proof
+  output, not the search, so `nt/twee.py` can leave them out.
+  `--kbo-weight0-unary` (in our `BASE_FLAGS`) is already on by default.
+* Twee's built-in hint defaults are `--hint-skel-cost 1 --hint-skel-factor 0`,
+  which is presumably what the 88 partial-proof runs used for their hinted run.
+* `--flatten-goal` is on by default in Twee. The arXiv version
+  (2603.06849, Appendix A) calls its baseline "default Twee without goal
+  flattening"; that is the paper's baseline, not Twee's default. The appendix
+  gives settings by name, not as flags: strategies are
+  {flattening on, off} × weight factor {0, 0.2, 0.5, 0.7}, the
+  domain-abstraction runs use factor 0.2 (τ = 0.2, final Stitch step on),
+  the partial-proof runs factor 0.2 with the top 50 lemmas and
+  t_par ∈ {50, 150, 500}, and factor ≈ 0.5 is reported as best overall.
 
 ## Building the patched Twee
 
