@@ -13,12 +13,18 @@ Reading the result:
   * results swing a lot between values of N: the search is sensitive to
     housekeeping timing in general, and N should be chosen with care.
 
-The normal schedule is not reproducible, so use --reps 2 or more to see how
-much it varies by itself.
+The normal schedule is not reproducible, so it runs --reps times (default 2)
+to show how much it varies by itself; deterministic runs are identical on
+every repeat and run once.
+
+Lower --deterministic values mean more frequent housekeeping. On problems
+where Twee manages far fewer CPs per second than the chosen value, the
+deterministic schedule housekeeps much less often than the normal one; the
+low values test whether that explains the outliers.
 
 Usage:
     python -m nt.schedule_diag data/labels.jsonl <twitch_repo>/data/TPTP out/schedule_diag.jsonl \
-        [--problems GRP770-1,LAT074-1] [--flatten off] [--schedules none,2000,5000,7000] \
+        [--problems GRP770-1,LAT074-1] [--flatten off] [--schedules none,500,1000,2000,5000,7000] \
         [--reps 2] [--wall-timeout 1000] [--workers N]
 
     # print the table from an existing (possibly partial) output file
@@ -49,6 +55,14 @@ def _run(problem, path, schedule, rep, flatten, wall_timeout):
             "rep": rep, **r.to_dict()}
 
 
+def n_reps(schedule: str, reps: int) -> int:
+    return reps if schedule == "none" else 1
+
+
+def columns(schedules, reps):
+    return [(s, i) for s in schedules for i in range(n_reps(s, reps))]
+
+
 def cell(r: dict) -> str:
     if r["status"] == "proved":
         return f"{r['wall']:.0f}s/{r['cps'] / 1e6:.2f}M"
@@ -62,7 +76,7 @@ def main() -> None:
     ap.add_argument("out")
     ap.add_argument("--problems", default=DEFAULT_PROBLEMS)
     ap.add_argument("--flatten", choices=["on", "off"], default="off")
-    ap.add_argument("--schedules", default="none,2000,5000,7000",
+    ap.add_argument("--schedules", default="none,500,1000,2000,5000,7000",
                     help="comma-separated: 'none' (CPU-time schedule) or a --deterministic value")
     ap.add_argument("--reps", type=int, default=2)
     ap.add_argument("--wall-timeout", type=float, default=1000.0)
@@ -84,7 +98,7 @@ def main() -> None:
         report(rows, problems, schedules, args.reps, flatten, args.labels)
         return
     jobs = [(p, paths[p], s, rep) for p in problems for s in schedules
-            for rep in range(args.reps)]
+            for rep in range(n_reps(s, args.reps))]
     print(f"{len(jobs)} runs, flattening {args.flatten}, wall cap {args.wall_timeout}s, "
           f"{args.workers} workers", flush=True)
     if args.workers < len(jobs):
@@ -111,9 +125,10 @@ def report(rows, problems, schedules, reps, flatten, labels) -> None:
         print(f"\n{len(errors)} runs failed. First error:\n{errors[0]['error'][-1500:]}")
 
     tw = twitch_baselines(labels)
-    head = ["problem", "Twitch"] + [f"{s} #{i + 1}" if reps > 1 else s
-                                     for s in schedules for i in range(reps)]
-    width = 16
+    cols = columns(schedules, reps)
+    head = ["problem", "Twitch"] + [f"{s} #{i + 1}" if n_reps(s, reps) > 1 else s
+                                     for s, i in cols]
+    width = 14
     print("\nwall time / critical pairs; 'none' = Twee's normal CPU-time schedule")
     print("".join(h.ljust(width) for h in head))
     by = {(r["problem"], r["schedule"], r["rep"]): r for r in rows}
@@ -121,7 +136,7 @@ def report(rows, problems, schedules, reps, flatten, labels) -> None:
         t = tw.get((p, flatten), "?")
         line = [p, "timeout" if t is None else t if t == "?" else f"{t:.0f}s"]
         line += [cell(by[p, s, i]) if (p, s, i) in by else "(not run)"
-                 for s in schedules for i in range(reps)]
+                 for s, i in cols]
         print("".join(str(c).ljust(width) for c in line))
 
 
