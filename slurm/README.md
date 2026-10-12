@@ -20,7 +20,7 @@ file $HOME/twee-static/twee        # should say "statically linked"
 ssh <cid>@vera1.c3se.chalmers.se 'mkdir -p ~/bin ~/TPTP-v9.2.1'
 scp $HOME/twee-static/twee <cid>@vera1.c3se.chalmers.se:bin/twee
 # check it runs on Vera and has the patch
-ssh <cid>@vera1.c3se.chalmers.se '~/bin/twee --help | grep -- --deterministic'
+ssh <cid>@vera1.c3se.chalmers.se '~/bin/twee --expert-help | grep -- --deterministic'
 ```
 
 Static linking needs the static libraries for GMP, libffi and glibc
