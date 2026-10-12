@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -127,6 +128,34 @@ def parse_stats(output: str) -> dict | None:
             "cpu_seconds": float(m.group(6)) if m.group(6) else None}
 
 
+def _run_capped(cmd: list[str], wall_timeout: float) -> tuple[str, str]:
+    """Run cmd and return (stdout, stderr); raise subprocess.TimeoutExpired
+    after wall_timeout seconds.
+
+    The command runs in its own process group, and a timeout kills the whole
+    group. subprocess.run(timeout=...) kills only the process it started, so
+    when TWEE_PATH is a wrapper script (or the Apptainer wrapper) the real
+    Twee would keep running as an orphan, holding a core until it finished."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    try:
+        return p.communicate(timeout=wall_timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(p)
+        raise
+    except BaseException:  # e.g. KeyboardInterrupt: don't leave Twee behind
+        _kill_group(p)
+        raise
+
+
+def _kill_group(p: subprocess.Popen) -> None:
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    p.communicate()
+
+
 def run(problem_path: str, abstractions: list[str], setting: Setting,
         max_cps: int, wall_timeout: float = 600.0,
         twee: str | None = None, tptp_root: str | None = None,
@@ -152,12 +181,11 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         cmd += ["--root", tptp_root]
     start = time.monotonic()
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=wall_timeout)
+        out, err = _run_capped(cmd, wall_timeout)
         wall = time.monotonic() - start
-        stats = parse_stats(p.stdout)
+        stats = parse_stats(out)
         if stats is None:
-            return RunResult("error", None, None, None, wall,
-                             (p.stderr or p.stdout)[-2000:])
+            return RunResult("error", None, None, None, wall, (err or out)[-2000:])
         status = "proved" if stats["solved"] else "budget"
         return RunResult(status, stats["cps"], stats["rules_created"],
                          stats["active_rules"], wall,

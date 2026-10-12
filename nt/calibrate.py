@@ -22,6 +22,7 @@ import glob
 import json
 import os
 import statistics as st
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from nt import twee
@@ -65,9 +66,11 @@ def main() -> None:
     problems = twee.select_shard(problems, args.shard)
     modes = FLATTEN_MODES[args.flatten]
     print(f"{len(problems)} problems x {len(modes)} flattening settings x 2 runs, "
-          f"wall cap {args.wall_timeout}s, schedule {args.schedule}")
+          f"wall cap {args.wall_timeout}s, schedule {args.schedule}, "
+          f"{args.workers} workers", flush=True)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    t0 = time.monotonic()
     rows = []
     with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
         futs = [ex.submit(_run, p, paths[p], rep, args.wall_timeout, flatten,
@@ -78,8 +81,10 @@ def main() -> None:
             rows.append(r)
             out.write(json.dumps(r) + "\n")
             out.flush()
-            if i % 50 == 0:
-                print(f"{i}/{len(futs)} runs done")
+            took = f"{r['wall']:.1f}s" if r.get("wall") is not None else "?"
+            print(f"[{time.monotonic() - t0:6.0f}s] {i}/{len(futs)} {r['problem']} "
+                  f"flatten={'on' if r['flatten'] else 'off'} rep={r['rep']}: "
+                  f"{r['status']} ({took})", flush=True)
     report(rows)
 
 
