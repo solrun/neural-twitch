@@ -129,13 +129,20 @@ Two patches against Twee's GitHub `master` (2.6.2), which already has the
 
   It also adds `--deterministic-alloc N`, which measures the schedule in bytes
   allocated by the Haskell runtime, with N bytes counting as one second.
-  Critical pairs are a poor clock because their cost varies more than tenfold
-  between problems: LAT074-1 runs at ~700 CPs/s, so at
-  `--deterministic 7000` it housekeeps about ten times less often than normal
-  Twee. Allocation tracks CPU time much more closely, and housekeeping
-  allocates too, so the time budgets apply again. `--print-stats` now also
-  reports `allocated_bytes` and `cpu_seconds` for the whole run, which is how
-  to choose N (see `nt.schedule_diag`).
+  The cost of a critical pair varies between problems, while Twee allocates
+  at a nearly constant rate: 2.6–3.0 GB per CPU second on Vera across the six
+  problems in `nt.schedule_diag`, which ran at 3,300–4,500 CPs per second.
+  Housekeeping allocates too, so the time budgets apply again.
+  `--print-stats` now also reports `allocated_bytes` and `cpu_seconds` for
+  the whole run, which is how to choose N (see `nt.schedule_diag`).
+
+  Either way, Twee's run time is very sensitive to *when* housekeeping
+  happens. Across `--deterministic 500/1000/2000/7000`, LAT074-1 takes
+  timeout/27 s/143 s/timeout, and the other diagnostic problems swing just as
+  much. Twee's normal schedule is stable from run to run (55.6k vs 55.8k CPs
+  on LAT074-1) only because machine load perturbs it little. No deterministic
+  clock reproduces Twitch's times problem by problem, and the same
+  sensitivity can make an abstraction look much better or worse than it is.
 
 ```bash
 git clone https://github.com/nick8325/twee && cd twee
