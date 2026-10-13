@@ -207,7 +207,12 @@ ETP problems get the prefix `ETP-` (e.g. `ETP-1076_102`) and hindsight
 subproblems the suffix `_hsK`, so names still start with their domain.
 
 ```bash
+# stitch_core 0.1.25 does not install on Python 3.14; the abstract step uses
+# its own venv on Python 3.12 (Twitch was tested on 3.11)
+module purge; module load <a Python/3.12 module>   # see `module spider Python/3.12`
+python -m venv ~/venvs/nt-stitch && source ~/venvs/nt-stitch/bin/activate
 pip install -r requirements.txt            # adds stitch_core, python-dotenv
+source slurm/vera.env                      # back to the main venv for everything else
 mkdir -p logs out/expand
 T=$HOME/ijcar26-twee_abstractions/data/TPTP
 # 1. proofs for the ETP problems and for all TPTP UEQ problems (job arrays)
@@ -222,7 +227,8 @@ python -m nt.expand hindsight out/expand/tptp_base.jsonl out/expand/etp_base.jso
 sbatch --array=0-7 --export=ALL,NAME=hs,INPUTS=out/expand/hindsight/manifest.jsonl \
     slurm/expand_base.sbatch
 cat out/expand/hs_base_*.jsonl > out/expand/hs_base.jsonl
-# 3. abstraction sets (Stitch; one node)
+# 3. abstraction sets (Stitch; one node; in the Python 3.12 venv)
+module load <the Python/3.12 module>; source ~/venvs/nt-stitch/bin/activate
 srun -c 32 -t 2:00:00 python -m nt.expand abstract \
     out/expand/etp_base.jsonl out/expand/hs_base.jsonl --out out/expand/sets.jsonl
 # 4. labels
