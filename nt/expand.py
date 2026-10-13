@@ -73,6 +73,10 @@ def collect_problems(inputs: list[str]) -> list[dict]:
     .jsonl files with rows {problem, path, domain}."""
     out = {}
     for inp in inputs:
+        if not os.path.exists(inp):
+            hint = (" (is TWITCH_DIR set? `source slurm/vera.env` sets it)"
+                    if inp.startswith("/data/") else "")
+            raise SystemExit(f"no such file or directory: {inp!r}{hint}")
         if inp.endswith(".jsonl"):
             for line in open(inp):
                 if line.strip():
