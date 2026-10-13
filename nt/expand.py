@@ -42,6 +42,7 @@ import collections
 import glob
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -73,6 +74,10 @@ def collect_problems(inputs: list[str]) -> list[dict]:
     .jsonl files with rows {problem, path, domain}."""
     out = {}
     for inp in inputs:
+        if not os.path.exists(inp):
+            hint = (" (is TWITCH_DIR set? `source slurm/vera.env` sets it)"
+                    if inp.startswith("/data/") else "")
+            raise SystemExit(f"no such file or directory: {inp!r}{hint}")
         if inp.endswith(".jsonl"):
             for line in open(inp):
                 if line.strip():
@@ -113,6 +118,11 @@ def cmd_base(args) -> None:
     if args.exclude:
         skip = set(args.exclude.split(","))
         probs = [p for p in probs if p["domain"] not in skip]
+    if args.sample:
+        # a fixed random subset: --limit takes the first problems by name,
+        # which for ETP all share the same hypothesis law
+        probs = sorted(random.Random(args.seed).sample(probs, min(args.sample, len(probs))),
+                       key=lambda p: p["problem"])
     if args.limit:
         probs = probs[:args.limit]
     probs = twee.select_shard(probs, args.shard)
@@ -367,7 +377,9 @@ def main() -> None:
     b.add_argument("--wall-timeout", type=float, default=1000.0)
     b.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE)
     b.add_argument("--workers", type=int, default=twee.default_workers())
-    b.add_argument("--limit", type=int, default=0)
+    b.add_argument("--limit", type=int, default=0, help="first N problems by name")
+    b.add_argument("--sample", type=int, default=0, help="random N problems (fixed by --seed)")
+    b.add_argument("--seed", type=int, default=0)
     b.add_argument("--shard", default="", metavar="K/N")
     b.set_defaults(func=cmd_base)
 
