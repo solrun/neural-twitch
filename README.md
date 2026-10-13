@@ -23,6 +23,7 @@ published with the Twitch paper
 | `twee-print-stats.patch` | Twee patch adding `--print-stats`: prints the critical-pair count and rule counts at the end of a run. |
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
 | `nt/single_runs.py` | The single-abstraction experiment (next step 2 below). |
+| `single_analysis.md` | Report of the single-abstraction runs. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
@@ -192,6 +193,41 @@ The CP budget needs calibrating once the binary exists: pick it so the
 baseline still proves nearly all 306 problems, otherwise most ratios are
 undefined.
 
+## What the single-abstraction runs say
+
+Full report: `single_analysis.md` (12,429 runs on 295 problems, allocation
+clock, 6M CP budget; produced before wall-clock timeouts counted as hurting,
+which adds ~3–4 points to "hurts").
+
+1. **Single abstractions often help.** Per setting, 26–33% of single runs
+   are a >=1.5x speedup, 43–61% neutral, 13–24% a slowdown. 52% of
+   (problem, abstraction) pairs help under at least one setting, 13% under
+   all six. (These are members of Twitch's best set per problem, so this is
+   conditional on that selection.)
+2. **A set behaves like its best member, not like the sum of its members.**
+   The best single ratio predicts the set ratio best (Spearman 0.67); the
+   product of single ratios is far off (median error 4x). In 23% of cases a
+   member helps alone but the set does not; only 6% show synergy. Per-
+   abstraction labels carry most of the signal, and adding abstractions
+   can cost more than it gains.
+3. **Within a flattening setting, the weight setting hardly matters** for
+   these three settings: Spearman 0.69–0.89 between cost 1, factor 0.2 and
+   factor 0.5, with 1–4% helps-vs-hurts contradictions. The model need not
+   predict a weight among them.
+4. **Goal flattening changes which abstractions help.** Between flattening
+   on and off for the same weight setting, Spearman is only 0.22–0.24, with
+   6–9% contradictions. Weight changes also alter the search, yet labels
+   agree there, so this is more than generic schedule sensitivity. Labels
+   (and the model) should be conditioned on flattening.
+5. **Our CP ratios agree with Twitch's wall-clock ratios** for the same set
+   and configuration: Spearman 0.62, same class 69%, contradictions 8%,
+   despite a different Twee build and clock. The deterministic setup
+   measures the same effect.
+6. **Twee crashes on 7 hinted runs** (`Twee/Term.hs:(115,3)-(116,19):
+   Non-exhaustive patterns`), e.g. LCL400-10 with factor 0.2 and no
+   flattening. Rare, but worth reporting upstream with the hint that
+   triggers it.
+
 ## Growing the dataset
 
 `nt/expand.py` produces new problems and abstraction sets in three stages;
@@ -240,12 +276,10 @@ cat out/single_expand_*.jsonl > out/single_expand.jsonl
 
 ## Next steps
 
-1. **Deterministic cost in Twee.** Patches written (`twee-print-stats.patch`,
-   `twee-deterministic.patch`). Remaining: rebuild and confirm with
-   `nt.calibrate` that repeated runs give identical CP counts.
-2. **Single-abstraction runs.** Harness written (`nt/single_runs.py`).
-   Remaining: calibrate the CP budget and run it. The result answers whether
-   individual labels predict set-level speedups.
+1. **Deterministic cost in Twee.** Done: `--deterministic-alloc` gives
+   identical CP counts across runs and nodes.
+2. **Single-abstraction runs.** Done; see "What the single-abstraction runs
+   say". Labels in `data/single_labels.jsonl` (on Vera).
 3. **ETP data.** The Twitch repo contains 1,027 self-contained Equational
    Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` that the paper
    does not use. They come from Twitch's `generate_tptp_for_unknown.py`,
