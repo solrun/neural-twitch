@@ -100,11 +100,17 @@ typically much less.
 Choose the budget from the calibration report, then:
 
 ```bash
-sbatch -A <project> --array=0-31 --export=ALL,MAX_CPS=<budget> slurm/single_runs.sbatch
+sbatch -A <project> --array=0-31 \
+  --export=ALL,MAX_CPS=<budget>,EXTRA_ARGS="--wall-timeout 2400 --calibration out/calibration_*.jsonl" \
+  slurm/single_runs.sbatch
 cat out/single_*.jsonl > out/single.jsonl
 ```
 
-Each problem runs under both flattening settings (15,222 Twee runs), so the
+`--calibration` skips (problem, flattening) pairs whose calibration baseline
+did not prove within the budget: they give no ratios and their runs mostly
+sit until the budget. The glob is expanded inside the job, from the
+repository root. Each problem runs under both flattening settings (up to
+15,222 Twee runs), so the
 array has 32 shards to keep each one inside the 12-hour limit. Ratios are
 computed within each shard; shards split by problem, so every problem's
 baselines are in the same shard as its abstraction runs.

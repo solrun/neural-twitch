@@ -69,6 +69,28 @@ def jobs_for(problem: str, path: str, abstractions: list[str],
                 yield problem, path, s, "single", [a]
 
 
+def proved_baselines(paths: list[str], max_cps: int, schedule: str) -> set:
+    """(problem, flatten) pairs whose calibration baseline proved within
+    max_cps under the given schedule. Without a proved baseline no ratio can
+    be computed, and the runs mostly sit until the budget, so they are
+    skipped."""
+    ok, seen = set(), set()
+    for path in paths:
+        for line in open(path):
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r.get("schedule", schedule) != schedule:
+                continue
+            k = (r["problem"], r.get("flatten", True))
+            seen.add(k)
+            if r["status"] == "proved" and r["cps"] <= max_cps:
+                ok.add(k)
+    if not seen:
+        raise SystemExit(f"no calibration rows for schedule {schedule} in {paths}")
+    return ok
+
+
 def _run(job, max_cps, wall_timeout, schedule):
     problem, path, setting, kind, abstractions = job
     res = twee.run(path, abstractions, setting, max_cps, wall_timeout,
@@ -89,6 +111,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="max problems (for a trial run)")
     ap.add_argument("--shard", default="", metavar="K/N",
                     help="run only shard K of N (for Slurm job arrays)")
+    ap.add_argument("--calibration", nargs="+", metavar="FILE",
+                    help="calibration output for the same --schedule; skip (problem, "
+                         "flattening) pairs whose baseline did not prove within --max-cps")
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: run with it on and off (default), "
                          "or only one of them")
@@ -108,6 +133,11 @@ def main() -> None:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
     jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten])]
+    if args.calibration:
+        ok = proved_baselines(args.calibration, args.max_cps, args.schedule)
+        n = len(jobs)
+        jobs = [j for j in jobs if (j[0], j[2].flatten_goal) in ok]
+        print(f"skipping {n - len(jobs)} runs without a proved calibration baseline")
     print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs, "
           f"schedule {args.schedule}")
 
