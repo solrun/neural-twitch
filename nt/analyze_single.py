@@ -15,7 +15,9 @@ the housekeeping schedule alone (80% of problems moved by 0.7-1.4x).
 
 Runs that hit the CP budget have ratio = budget / baseline CPs, a lower bound
 on the true ratio; they always count as hurting. Runs that hit the wall-clock
-cap, or whose baseline did not prove, have no ratio and are left out.
+cap while their baseline proved have no ratio, but certainly hurt: they count
+as hurting in section 1 and in the labels file, and are left out of the
+ratio-based sections. Runs whose baseline did not prove are left out.
 
 Usage:
     python -m nt.analyze_single out/single.jsonl data/labels.jsonl > single_analysis.md
@@ -155,28 +157,40 @@ def main() -> None:
     set_ratio: dict = {}                      # (problem, setting) -> ratio
     set_abs: dict = {}                        # problem -> abstraction list
     single: dict = {}                         # (problem, setting, abstraction) -> ratio
+    base_ok = {(r["problem"], r["setting"]) for r in rows
+               if r["kind"] == "base" and r["ratio"] is not None}
+    INF = float("inf")                        # wall-clock timeout with a proved baseline
+    set_to: dict = {}
+    single_to: dict = {}
     for r in rows:
+        timed_out = r["status"] == "timeout" and (r["problem"], r["setting"]) in base_ok
         if r["kind"] == "set":
             set_abs[r["problem"]] = r["abstractions"]
             if r["ratio"] is not None:
                 set_ratio[r["problem"], r["setting"]] = r["ratio"]
+            elif timed_out:
+                set_to[r["problem"], r["setting"]] = INF
         elif r["kind"] == "single" and r["ratio"] is not None:
             single[r["problem"], r["setting"], r["abstractions"][0]] = r["ratio"]
+        elif r["kind"] == "single" and timed_out:
+            single_to[r["problem"], r["setting"], r["abstractions"][0]] = INF
 
     # ---- 1. singles alone --------------------------------------------------
     p("## 1. Do abstractions help on their own?\n")
     p("| setting | single runs | helps | neutral | hurts | median ratio | sets: helps |")
     p("|---|---|---|---|---|---|---|")
     for s in settings:
-        xs = [v for (pr, ss, a), v in single.items() if ss == s]
-        ys = [v for (pr, ss), v in set_ratio.items() if ss == s]
+        xs = [v for (pr, ss, a), v in (single | single_to).items() if ss == s]
+        ys = [v for (pr, ss), v in (set_ratio | set_to).items() if ss == s]
         c = collections.Counter(map(cls, xs))
         p(f"| {weight_name(s)}, {flat_name(s)} | {len(xs)} | {pct(c['helps'], len(xs))} | "
           f"{pct(c['neutral'], len(xs))} | {pct(c['hurts'], len(xs))} | "
           f"{st.median(xs):.2f} | {pct(sum(cls(y) == 'helps' for y in ys), len(ys))} |"
           if xs else f"| {weight_name(s)}, {flat_name(s)} | 0 | | | | | |")
+    p(f"\nRuns that hit the wall-clock cap with a proved baseline count as hurting: "
+      f"{len(single_to)} single and {len(set_to)} set runs.")
     per_abs = collections.defaultdict(list)
-    for (pr, s, a), v in single.items():
+    for (pr, s, a), v in (single | single_to).items():
         per_abs[pr, a].append(v)
     any_help = sum(any(cls(v) == "helps" for v in vs) for vs in per_abs.values())
     all_help = sum(all(cls(v) == "helps" for v in vs) for vs in per_abs.values())
@@ -280,7 +294,9 @@ def main() -> None:
         with open(args.labels_out, "w") as out:
             n = 0
             for r in rows:
-                if r["kind"] not in ("single", "set") or r["ratio"] is None:
+                timed_out = (r["status"] == "timeout"
+                             and (r["problem"], r["setting"]) in base_ok)
+                if r["kind"] not in ("single", "set") or (r["ratio"] is None and not timed_out):
                     continue
                 f, c, flat = parse_setting(r["setting"])
                 out.write(json.dumps({
@@ -288,8 +304,9 @@ def main() -> None:
                     "abstractions": r["abstractions"], "hint_skel_factor": f,
                     "hint_skel_cost": c, "flatten_goal": flat,
                     "schedule": r.get("schedule"), "status": r["status"],
-                    "ratio": r["ratio"], "label": cls(r["ratio"]),
-                    "lower_bound": r["status"] == "budget"}) + "\n")
+                    "ratio": r["ratio"],
+                    "label": "hurts" if timed_out else cls(r["ratio"]),
+                    "lower_bound": r["status"] in ("budget", "timeout")}) + "\n")
                 n += 1
         p(f"Wrote {n} labels to {args.labels_out}.")
 
