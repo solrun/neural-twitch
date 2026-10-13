@@ -23,6 +23,7 @@ published with the Twitch paper
 | `twee-print-stats.patch` | Twee patch adding `--print-stats`: prints the critical-pair count and rule counts at the end of a run. |
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
 | `nt/single_runs.py` | The single-abstraction experiment (next step 2 below). |
+| `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
 | `slurm/` | Job scripts and setup guide for the Vera cluster (`slurm/README.md`). |
@@ -178,6 +179,14 @@ flattening on and off, runs the baseline, the full set and each abstraction
 alone. Every row gets `ratio` = critical pairs relative to the baseline under
 the same setting. `--flatten on` or `--flatten off` restricts both scripts to
 one flattening setting.
+
+Afterwards:
+
+```bash
+cat out/single_*.jsonl > out/single.jsonl
+python -m nt.analyze_single out/single.jsonl data/labels.jsonl \
+    --labels-out data/single_labels.jsonl > single_analysis.md
+```
 
 The CP budget needs calibrating once the binary exists: pick it so the
 baseline still proves nearly all 306 problems, otherwise most ratios are
