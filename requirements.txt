@@ -1,2 +1,5 @@
 pyyaml
 pytest
+# for `nt.expand abstract` (runs Twitch's Stitch extraction)
+stitch_core==0.1.25
+python-dotenv

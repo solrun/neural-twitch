@@ -23,6 +23,7 @@ published with the Twitch paper
 | `twee-print-stats.patch` | Twee patch adding `--print-stats`: prints the critical-pair count and rule counts at the end of a run. |
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
 | `nt/single_runs.py` | The single-abstraction experiment (next step 2 below). |
+| `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
 | `slurm/` | Job scripts and setup guide for the Vera cluster (`slurm/README.md`). |
@@ -129,13 +130,20 @@ Two patches against Twee's GitHub `master` (2.6.2), which already has the
 
   It also adds `--deterministic-alloc N`, which measures the schedule in bytes
   allocated by the Haskell runtime, with N bytes counting as one second.
-  Critical pairs are a poor clock because their cost varies more than tenfold
-  between problems: LAT074-1 runs at ~700 CPs/s, so at
-  `--deterministic 7000` it housekeeps about ten times less often than normal
-  Twee. Allocation tracks CPU time much more closely, and housekeeping
-  allocates too, so the time budgets apply again. `--print-stats` now also
-  reports `allocated_bytes` and `cpu_seconds` for the whole run, which is how
-  to choose N (see `nt.schedule_diag`).
+  The cost of a critical pair varies between problems, while Twee allocates
+  at a nearly constant rate: 2.6–3.0 GB per CPU second on Vera across the six
+  problems in `nt.schedule_diag`, which ran at 3,300–4,500 CPs per second.
+  Housekeeping allocates too, so the time budgets apply again.
+  `--print-stats` now also reports `allocated_bytes` and `cpu_seconds` for
+  the whole run, which is how to choose N (see `nt.schedule_diag`).
+
+  Either way, Twee's run time is very sensitive to *when* housekeeping
+  happens. Across `--deterministic 500/1000/2000/7000`, LAT074-1 takes
+  timeout/27 s/143 s/timeout, and the other diagnostic problems swing just as
+  much. Twee's normal schedule is stable from run to run (55.6k vs 55.8k CPs
+  on LAT074-1) only because machine load perturbs it little. No deterministic
+  clock reproduces Twitch's times problem by problem, and the same
+  sensitivity can make an abstraction look much better or worse than it is.
 
 ```bash
 git clone https://github.com/nick8325/twee && cd twee
@@ -146,7 +154,8 @@ twee some-problem.p --print-stats --deterministic 2000 --max-cps 1000000
 # last line: % twee-stats: considered_cps=... rules_created=... active_rules=... solved=true allocated_bytes=... cpu_seconds=...
 ```
 
-`nt/twee.py` passes `--deterministic 7000` (`CPS_PER_SECOND`) by default.
+`nt/twee.py` passes `--deterministic-alloc 2750000000` (`ALLOC_PER_SECOND`)
+by default.
 `nt.calibrate` and `nt.single_runs` take `--schedule cps:N`, `alloc:N` or
 `none` to change it. `nt/calibrate.py` runs every problem twice under each
 flattening setting and reports any CP-count mismatch.
@@ -171,9 +180,57 @@ alone. Every row gets `ratio` = critical pairs relative to the baseline under
 the same setting. `--flatten on` or `--flatten off` restricts both scripts to
 one flattening setting.
 
+Afterwards:
+
+```bash
+cat out/single_*.jsonl > out/single.jsonl
+python -m nt.analyze_single out/single.jsonl data/labels.jsonl \
+    --labels-out data/single_labels.jsonl > single_analysis.md
+```
+
 The CP budget needs calibrating once the binary exists: pick it so the
 baseline still proves nearly all 306 problems, otherwise most ratios are
 undefined.
+
+## Growing the dataset
+
+`nt/expand.py` produces new problems and abstraction sets in three stages;
+`nt.single_runs --sets` then labels them exactly like the Twitch sets.
+
+| Stage | What it does |
+|---|---|
+| `base` | Baseline runs (allocation clock, both flattening settings, 1000 s cap) that keep Twee's proof (`--all-lemmas --show-peaks`, gzipped under `out/expand/proofs/`). Rows have the calibration format, so they double as `--calibration` input. |
+| `hindsight` | For each proof needing at least 10k CPs, takes up to 5 lemmas (latest in the proof first) and writes each as a new problem: same axioms and includes, the lemma skolemised as the negated conjecture. Lemmas mentioning the goal's constants or symbols introduced by goal flattening, axioms, trivial lemmas and duplicates are dropped. Writes a manifest for `base`. |
+| `abstract` | Runs Twitch's own local-abstraction extraction on each proof (proof terms, Stitch with 10 iterations and max arity 10, Twitch's filters and expansion) and canonicalises the result. Imports Twitch's code from `TWITCH_DIR` (that repo has no licence file, so it isn't copied here); needs `stitch_core` and `python-dotenv`. |
+
+ETP problems get the prefix `ETP-` (e.g. `ETP-1076_102`) and hindsight
+subproblems the suffix `_hsK`, so names still start with their domain.
+
+```bash
+pip install -r requirements.txt            # adds stitch_core, python-dotenv
+mkdir -p logs out/expand
+T=$HOME/ijcar26-twee_abstractions/data/TPTP
+# 1. proofs for the ETP problems and for all TPTP UEQ problems (job arrays)
+sbatch --array=0-7 --export=ALL,NAME=etp,INPUTS=$T/ETP_UEQ_UNSAT slurm/expand_base.sbatch
+sbatch --array=0-7 --export=ALL,NAME=tptp,INPUTS="$T/*_UEQ_UNSAT",EXTRA_ARGS="--exclude ETP" \
+    slurm/expand_base.sbatch
+cat out/expand/etp_base_*.jsonl > out/expand/etp_base.jsonl
+cat out/expand/tptp_base_*.jsonl > out/expand/tptp_base.jsonl
+# 2. hindsight subproblems (seconds; fine on a login node), then their proofs
+python -m nt.expand hindsight out/expand/tptp_base.jsonl out/expand/etp_base.jsonl \
+    --out-dir out/expand/hindsight
+sbatch --array=0-7 --export=ALL,NAME=hs,INPUTS=out/expand/hindsight/manifest.jsonl \
+    slurm/expand_base.sbatch
+cat out/expand/hs_base_*.jsonl > out/expand/hs_base.jsonl
+# 3. abstraction sets (Stitch; one node)
+srun -c 32 -t 2:00:00 python -m nt.expand abstract \
+    out/expand/etp_base.jsonl out/expand/hs_base.jsonl --out out/expand/sets.jsonl
+# 4. labels
+sbatch --array=0-31 --export=ALL,MAX_CPS=6000000,SETS=out/expand/sets.jsonl,NAME=single_expand,\
+EXTRA_ARGS="--wall-timeout 2400 --calibration out/expand/etp_base.jsonl out/expand/hs_base.jsonl" \
+    slurm/single_runs.sbatch
+cat out/single_expand_*.jsonl > out/single_expand.jsonl
+```
 
 ## Next steps
 
@@ -183,10 +240,8 @@ undefined.
 2. **Single-abstraction runs.** Harness written (`nt/single_runs.py`).
    Remaining: calibrate the CP budget and run it. The result answers whether
    individual labels predict set-level speedups.
-3. **ETP data.** The Twitch repo already contains 1,027 self-contained
-   Equational Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` (one
-   binary operation, no includes) that the paper does not use. Running the
-   `base` and `local_abs` stages on them is the cheapest way to grow the
-   dataset.
-4. **Hindsight subproblems.** Extract derived lemmas from the existing base
-   proofs as new goals (Phase 1, source 2).
+3. **ETP data.** The Twitch repo contains 1,027 self-contained Equational
+   Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` that the paper
+   does not use. Code written (`nt.expand`, see above); remaining: run it.
+4. **Hindsight subproblems.** Derived lemmas from base proofs as new goals.
+   Code written (`nt.expand hindsight`); remaining: run it.

@@ -15,6 +15,9 @@ Usage:
         [--max-cps 2000000] [--workers 8] [--problems GRP,LAT] [--limit N] \
         [--flatten both|on|off]
 
+    # abstraction sets from nt.expand instead of the Twitch runs:
+    python -m nt.single_runs --sets out/expand/sets.jsonl out/single_expand.jsonl ...
+
 Output rows (one per run):
     {"problem", "setting", "kind": "base"|"set"|"single",
      "abstractions": [...], "status", "cps", ..., "ratio"}
@@ -69,6 +72,28 @@ def jobs_for(problem: str, path: str, abstractions: list[str],
                 yield problem, path, s, "single", [a]
 
 
+def proved_baselines(paths: list[str], max_cps: int, schedule: str) -> set:
+    """(problem, flatten) pairs whose calibration baseline proved within
+    max_cps under the given schedule. Without a proved baseline no ratio can
+    be computed, and the runs mostly sit until the budget, so they are
+    skipped."""
+    ok, seen = set(), set()
+    for path in paths:
+        for line in open(path):
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r.get("schedule", schedule) != schedule:
+                continue
+            k = (r["problem"], r.get("flatten", True))
+            seen.add(k)
+            if r["status"] == "proved" and r["cps"] <= max_cps:
+                ok.add(k)
+    if not seen:
+        raise SystemExit(f"no calibration rows for schedule {schedule} in {paths}")
+    return ok
+
+
 def _run(job, max_cps, wall_timeout, schedule):
     problem, path, setting, kind, abstractions = job
     res = twee.run(path, abstractions, setting, max_cps, wall_timeout,
@@ -79,9 +104,12 @@ def _run(job, max_cps, wall_timeout, schedule):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("labels")
-    ap.add_argument("tptp_dir")
+    ap.add_argument("labels", nargs="?", help="data/labels.jsonl (not with --sets)")
+    ap.add_argument("tptp_dir", nargs="?", help="Twitch's data/TPTP (not with --sets)")
     ap.add_argument("out")
+    ap.add_argument("--sets", metavar="FILE",
+                    help="abstraction sets from nt.expand (rows with problem, path, "
+                         "abstractions), instead of the best Twitch set per problem")
     ap.add_argument("--max-cps", type=int, default=2_000_000)
     ap.add_argument("--wall-timeout", type=float, default=1200.0)
     ap.add_argument("--workers", type=int, default=twee.default_workers())
@@ -89,6 +117,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="max problems (for a trial run)")
     ap.add_argument("--shard", default="", metavar="K/N",
                     help="run only shard K of N (for Slurm job arrays)")
+    ap.add_argument("--calibration", nargs="+", metavar="FILE",
+                    help="calibration output for the same --schedule; skip (problem, "
+                         "flattening) pairs whose baseline did not prove within --max-cps")
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: run with it on and off (default), "
                          "or only one of them")
@@ -98,9 +129,18 @@ def main() -> None:
                          f"default {twee.DEFAULT_SCHEDULE}")
     args = ap.parse_args()
 
-    paths = {os.path.basename(p)[:-2]: p
-             for p in glob.glob(os.path.join(args.tptp_dir, "*_UEQ_UNSAT", "*.p"))}
-    sets = best_sets(args.labels)
+    if args.sets:
+        if args.labels or args.tptp_dir:
+            ap.error("give either --sets or LABELS TPTP_DIR, not both")
+        rows = [json.loads(l) for l in open(args.sets) if l.strip()]
+        paths = {r["problem"]: r["path"] for r in rows}
+        sets = {r["problem"]: r["abstractions"] for r in rows}
+    else:
+        if not (args.labels and args.tptp_dir):
+            ap.error("need LABELS and TPTP_DIR, or --sets")
+        paths = {os.path.basename(p)[:-2]: p
+                 for p in glob.glob(os.path.join(args.tptp_dir, "*_UEQ_UNSAT", "*.p"))}
+        sets = best_sets(args.labels)
     domains = [d for d in args.problems.split(",") if d]
     problems = sorted(p for p in sets if p in paths
                       and (not domains or p[:3] in domains))
@@ -108,6 +148,11 @@ def main() -> None:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
     jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten])]
+    if args.calibration:
+        ok = proved_baselines(args.calibration, args.max_cps, args.schedule)
+        n = len(jobs)
+        jobs = [j for j in jobs if (j[0], j[2].flatten_goal) in ok]
+        print(f"skipping {n - len(jobs)} runs without a proved calibration baseline")
     print(f"{len(problems)} problems, {len(jobs)} Twee runs, budget {args.max_cps} CPs, "
           f"schedule {args.schedule}")
 

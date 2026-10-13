@@ -20,8 +20,10 @@ Environment: TWEE_PATH (binary), TPTP_ROOT (for axiom includes).
 
 from __future__ import annotations
 
+import gzip
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -39,7 +41,16 @@ _STATS = re.compile(
 # Updated to 7000 for running on Vera nodes.
 CPS_PER_SECOND = 7000
 
-DEFAULT_SCHEDULE = f"cps:{CPS_PER_SECOND}"
+# Bytes allocated that count as one second under --deterministic-alloc: the
+# median allocation rate of Twee's normal schedule on Vera Zen 4 nodes
+# (2.56-2.96 GB per CPU second in nt.schedule_diag). The default schedule:
+# it is deterministic like the CP clock, but tracks CPU time across problems
+# and enforces Twee's housekeeping time budgets (calibration 2026-10-13:
+# 0 mismatches, 6 more baselines proved per flattening setting than
+# cps:7000, ~10-15% less wall time per CP).
+ALLOC_PER_SECOND = 2_750_000_000
+
+DEFAULT_SCHEDULE = f"alloc:{ALLOC_PER_SECOND}"
 
 # Flags Twitch always passes (see src/utils.py in the Twitch repo).
 BASE_FLAGS = ["--kbo-weight0-unary"]
@@ -127,14 +138,61 @@ def parse_stats(output: str) -> dict | None:
             "cpu_seconds": float(m.group(6)) if m.group(6) else None}
 
 
+def write_text(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "wt") as f:
+        f.write(text)
+
+
+def read_text(path: str) -> str:
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt") as f:
+        return f.read()
+
+
+def _run_capped(cmd: list[str], wall_timeout: float) -> tuple[str, str]:
+    """Run cmd and return (stdout, stderr); raise subprocess.TimeoutExpired
+    after wall_timeout seconds.
+
+    The command runs in its own process group, and a timeout kills the whole
+    group. subprocess.run(timeout=...) kills only the process it started, so
+    when TWEE_PATH is a wrapper script (or the Apptainer wrapper) the real
+    Twee would keep running as an orphan, holding a core until it finished."""
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, start_new_session=True)
+    try:
+        return p.communicate(timeout=wall_timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(p)
+        raise
+    except BaseException:  # e.g. KeyboardInterrupt: don't leave Twee behind
+        _kill_group(p)
+        raise
+
+
+def _kill_group(p: subprocess.Popen) -> None:
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    p.communicate()
+
+
 def run(problem_path: str, abstractions: list[str], setting: Setting,
         max_cps: int, wall_timeout: float = 600.0,
         twee: str | None = None, tptp_root: str | None = None,
         extra_flags: list[str] | None = None,
-        schedule: str | int | None = DEFAULT_SCHEDULE) -> RunResult:
+        schedule: str | int | None = DEFAULT_SCHEDULE,
+        proof_path: str | None = None) -> RunResult:
     """Run Twee once under the given housekeeping schedule (see the module
     docstring). "none" runs Twee's normal CPU-time schedule, whose CP counts
-    are not reproducible."""
+    are not reproducible.
+
+    With proof_path, Twee prints its proof with the flags Twitch uses for
+    abstraction extraction (--all-lemmas --show-peaks), and a proved run's
+    output is written there (gzipped if the name ends in .gz). Proof
+    presentation happens after the search, so the CP count is unchanged."""
     twee = twee or os.environ["TWEE_PATH"]
     tptp_root = tptp_root or os.environ.get("TPTP_ROOT", "")
     with open(problem_path) as f:
@@ -145,20 +203,22 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
             tmp.write("\n\n" + hints_block(abstractions))
         tmp_path = tmp.name
     sched = schedule_flags(schedule)
+    output_flags = ["--all-lemmas", "--show-peaks"] if proof_path else ["--no-proof"]
     cmd = [twee, tmp_path, *BASE_FLAGS, *sched, *setting.flags(),
-           "--max-cps", str(max_cps), "--print-stats", "--quiet", "--no-proof",
+           "--max-cps", str(max_cps), "--print-stats", "--quiet", *output_flags,
            *(extra_flags or [])]
     if tptp_root:
         cmd += ["--root", tptp_root]
     start = time.monotonic()
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=wall_timeout)
+        out, err = _run_capped(cmd, wall_timeout)
         wall = time.monotonic() - start
-        stats = parse_stats(p.stdout)
+        stats = parse_stats(out)
         if stats is None:
-            return RunResult("error", None, None, None, wall,
-                             (p.stderr or p.stdout)[-2000:])
+            return RunResult("error", None, None, None, wall, (err or out)[-2000:])
         status = "proved" if stats["solved"] else "budget"
+        if proof_path and status == "proved":
+            write_text(proof_path, out)
         return RunResult(status, stats["cps"], stats["rules_created"],
                          stats["active_rules"], wall,
                          allocated_bytes=stats["allocated_bytes"],
