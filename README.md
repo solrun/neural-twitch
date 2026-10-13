@@ -248,6 +248,11 @@ cat out/single_expand_*.jsonl > out/single_expand.jsonl
    individual labels predict set-level speedups.
 3. **ETP data.** The Twitch repo contains 1,027 self-contained Equational
    Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` that the paper
-   does not use. Code written (`nt.expand`, see above); remaining: run it.
+   does not use. They come from Twitch's `generate_tptp_for_unknown.py`,
+   i.e. implications that resisted ETP's automatic first pass, so they are
+   probably hard: the first five (all with hypothesis law 1076) timed out at
+   120 s under both settings. Measure the solve rate on a random sample
+   (`nt.expand base ... --sample 64 --wall-timeout 1000`) before running
+   all of them.
 4. **Hindsight subproblems.** Derived lemmas from base proofs as new goals.
    Code written (`nt.expand hindsight`); remaining: run it.
