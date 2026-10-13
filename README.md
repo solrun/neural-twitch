@@ -153,7 +153,8 @@ twee some-problem.p --print-stats --deterministic 2000 --max-cps 1000000
 # last line: % twee-stats: considered_cps=... rules_created=... active_rules=... solved=true allocated_bytes=... cpu_seconds=...
 ```
 
-`nt/twee.py` passes `--deterministic 7000` (`CPS_PER_SECOND`) by default.
+`nt/twee.py` passes `--deterministic-alloc 2750000000` (`ALLOC_PER_SECOND`)
+by default.
 `nt.calibrate` and `nt.single_runs` take `--schedule cps:N`, `alloc:N` or
 `none` to change it. `nt/calibrate.py` runs every problem twice under each
 flattening setting and reports any CP-count mismatch.

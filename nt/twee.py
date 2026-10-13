@@ -40,7 +40,16 @@ _STATS = re.compile(
 # Updated to 7000 for running on Vera nodes.
 CPS_PER_SECOND = 7000
 
-DEFAULT_SCHEDULE = f"cps:{CPS_PER_SECOND}"
+# Bytes allocated that count as one second under --deterministic-alloc: the
+# median allocation rate of Twee's normal schedule on Vera Zen 4 nodes
+# (2.56-2.96 GB per CPU second in nt.schedule_diag). The default schedule:
+# it is deterministic like the CP clock, but tracks CPU time across problems
+# and enforces Twee's housekeeping time budgets (calibration 2026-10-13:
+# 0 mismatches, 6 more baselines proved per flattening setting than
+# cps:7000, ~10-15% less wall time per CP).
+ALLOC_PER_SECOND = 2_750_000_000
+
+DEFAULT_SCHEDULE = f"alloc:{ALLOC_PER_SECOND}"
 
 # Flags Twitch always passes (see src/utils.py in the Twitch repo).
 BASE_FLAGS = ["--kbo-weight0-unary"]
