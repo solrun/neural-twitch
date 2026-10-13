@@ -113,6 +113,31 @@ def _base_job(prob, flatten, proof_dir, wall_timeout, schedule):
             "proof": proof if r.status == "proved" else None}
 
 
+def finished_runs(path: str, schedule: str) -> set:
+    """(problem, flatten) pairs already in a base output file, for --resume.
+    Drops a truncated last line (a job killed mid-write) and runs that ended
+    in an error, rewriting the file without them, so those are run again."""
+    keep, done, dropped = [], set(), 0
+    for line in open(path):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            dropped += 1
+            continue
+        if r["status"] == "error" or r.get("schedule") != schedule:
+            dropped += 1
+            continue
+        keep.append(line if line.endswith("\n") else line + "\n")
+        done.add((r["problem"], r["flatten"]))
+    if dropped:
+        with open(path, "w") as f:
+            f.writelines(keep)
+        print(f"dropped {dropped} truncated, failed or other-schedule rows from {path}")
+    return done
+
+
 def cmd_base(args) -> None:
     probs = collect_problems(args.inputs)
     if args.exclude:
@@ -128,11 +153,19 @@ def cmd_base(args) -> None:
     probs = twee.select_shard(probs, args.shard)
     modes = FLATTEN_MODES[args.flatten]
     jobs = [(p, f) for p in probs for f in modes]
-    print(f"{len(probs)} problems x {len(modes)} flattening settings, wall cap "
-          f"{args.wall_timeout}s, schedule {args.schedule}, {args.workers} workers", flush=True)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    mode = "w"
+    if args.resume and os.path.exists(args.out):
+        done = finished_runs(args.out, args.schedule)
+        before = len(jobs)
+        jobs = [(p, f) for p, f in jobs if (p["problem"], f) not in done]
+        print(f"resuming: {before - len(jobs)} runs already in {args.out}, "
+              f"{len(jobs)} to go", flush=True)
+        mode = "a"
+    print(f"{len(probs)} problems x {len(modes)} flattening settings, {len(jobs)} runs, wall cap "
+          f"{args.wall_timeout}s, schedule {args.schedule}, {args.workers} workers", flush=True)
     t0, counts = time.monotonic(), collections.Counter()
-    with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
+    with open(args.out, mode) as out, ProcessPoolExecutor(args.workers) as ex:
         futs = [ex.submit(_base_job, p, f, args.proof_dir, args.wall_timeout, args.schedule)
                 for p, f in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
@@ -381,6 +414,8 @@ def main() -> None:
     b.add_argument("--sample", type=int, default=0, help="random N problems (fixed by --seed)")
     b.add_argument("--seed", type=int, default=0)
     b.add_argument("--shard", default="", metavar="K/N")
+    b.add_argument("--resume", action="store_true",
+                   help="keep finished runs in --out and run only the rest")
     b.set_defaults(func=cmd_base)
 
     h = sub.add_parser("hindsight", help="lemmas from proofs as new problems")

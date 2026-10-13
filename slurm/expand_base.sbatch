@@ -6,6 +6,9 @@
 #   cat out/expand/etp_base_*.jsonl > out/expand/etp_base.jsonl
 # INPUTS: problem directories, .p files or a manifest .jsonl, space-separated;
 # globs are expanded inside the job.
+# After an interruption, rerun the unfinished shards with the same SHARDS and
+# --resume, which keeps finished runs:
+#   sbatch --array=2,5 --export=ALL,NAME=etp,SHARDS=8,INPUTS=...,EXTRA_ARGS=--resume slurm/expand_base.sbatch
 #SBATCH -J nt-expand-base
 #SBATCH -p vera
 #SBATCH -C ZEN4
@@ -20,7 +23,9 @@ source slurm/vera.env
 : "${INPUTS:?pass the problems with --export=ALL,INPUTS=...}"
 
 K=$SLURM_ARRAY_TASK_ID
-N=$SLURM_ARRAY_TASK_COUNT
+# SHARDS fixes the shard count, so a rerun of some shards (--array=2,5)
+# still splits the problems the same way as the original array.
+N=${SHARDS:-$SLURM_ARRAY_TASK_COUNT}
 # shellcheck disable=SC2086  # INPUTS and EXTRA_ARGS are word-split and globbed on purpose
 python -m nt.expand base $INPUTS --out "out/expand/${NAME}_base_${K}.jsonl" \
     --shard "$K/$N" --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}

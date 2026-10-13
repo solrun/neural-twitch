@@ -15,7 +15,9 @@ cd "$SLURM_SUBMIT_DIR"
 source slurm/vera.env
 
 K=$SLURM_ARRAY_TASK_ID
-N=$SLURM_ARRAY_TASK_COUNT
+# SHARDS fixes the shard count, so a rerun of some shards (--array=2,5)
+# still splits the problems the same way as the original array.
+N=${SHARDS:-$SLURM_ARRAY_TASK_COUNT}
 python -m nt.calibrate data/labels.jsonl "$TWITCH_DIR/data/TPTP" \
     "out/calibration_${K}.jsonl" --shard "$K/$N" \
     --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}
