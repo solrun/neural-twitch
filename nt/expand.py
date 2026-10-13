@@ -215,9 +215,11 @@ def equation_key(lhs, rhs) -> str:
 
 
 def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
-                         tptp_root: str | None) -> tuple[list[dict], collections.Counter]:
+                         tptp_root: str | None, examples: dict | None = None
+                         ) -> tuple[list[dict], collections.Counter]:
     """Up to per_problem distinct lemmas from the given proofs, latest in
-    the proof first, that are usable as standalone goals."""
+    the proof first, that are usable as standalone goals. If `examples` is
+    given, a few dropped lemmas are recorded there per reason."""
     axioms = tptp.axiom_statements(problem_path, tptp_root)
     sig = tptp.signature(axioms)
     known = set()
@@ -237,6 +239,12 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
             ranked.append((rank, pi, lem))
     ranked.sort(key=lambda x: (x[0], x[1]))
     picked, seen = [], set()
+
+    def note(reason, ls, rs, detail=""):
+        if examples is not None and len(examples.setdefault(reason, [])) < 8:
+            examples[reason].append(f"{os.path.basename(problem_path)}: {ls} = {rs}"
+                                    + (f"   [{detail}]" if detail else ""))
+
     for _, pi, (num, ls, rs) in ranked:
         if len(picked) >= per_problem:
             break
@@ -245,12 +253,15 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
             continue
         try:
             l, r = parse(ls), parse(rs)
-        except ParseError:
+        except ParseError as e:
             why["unparsable"] += 1
+            note("unparsable", ls, rs, str(e))
             continue
         used = dict(symbols(l)) | dict(symbols(r))
-        if any(sig.get(f) != n for f, n in used.items()):
+        outside = sorted(f"{f}/{n}" for f, n in used.items() if sig.get(f) != n)
+        if outside:
             why["symbol outside the axioms"] += 1
+            note("symbol outside the axioms", ls, rs, ", ".join(outside))
             continue
         if l == r:
             why["trivial"] += 1
@@ -277,14 +288,14 @@ def cmd_hindsight(args) -> None:
             by_problem[r["problem"]].append(r)
     os.makedirs(args.out_dir, exist_ok=True)
     manifest = os.path.join(args.out_dir, "manifest.jsonl")
-    why_total, n = collections.Counter(), 0
+    why_total, n, examples = collections.Counter(), 0, {}
     with open(manifest, "w") as man:
         for prob in sorted(by_problem):
             rs = sorted(by_problem[prob], key=lambda r: not r["flatten"])
             src = rs[0]
             try:
                 cands, why = hindsight_candidates(src["path"], [r["proof"] for r in rs],
-                                                  args.per_problem, args.tptp_root)
+                                                  args.per_problem, args.tptp_root, examples)
             except FileNotFoundError as e:
                 print(f"{prob}: {e}", file=sys.stderr)
                 why_total["missing include"] += 1
@@ -308,6 +319,11 @@ def cmd_hindsight(args) -> None:
     print(f"{len(by_problem)} source problems with proofs >= {args.min_source_cps} CPs; "
           f"wrote {n} subproblems to {args.out_dir}")
     print("lemma filter:", dict(why_total.most_common()))
+    if args.show_dropped:
+        for reason, exs in examples.items():
+            print(f"\nexamples, {reason}:")
+            for e in exs[:args.show_dropped]:
+                print("  " + e)
     print(f"manifest: {manifest}")
 
 
@@ -426,6 +442,8 @@ def main() -> None:
     h.add_argument("--min-source-cps", type=int, default=DEFAULT_MIN_CPS,
                    help="only use proofs that needed at least this many CPs")
     h.add_argument("--tptp-root", default=os.environ.get("TPTP_ROOT"))
+    h.add_argument("--show-dropped", type=int, default=0, metavar="N",
+                   help="print up to N dropped lemmas per reason")
     h.set_defaults(func=cmd_hindsight)
 
     a = sub.add_parser("abstract", help="Twitch/Stitch abstraction sets from proofs")
