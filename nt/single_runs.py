@@ -15,6 +15,9 @@ Usage:
         [--max-cps 2000000] [--workers 8] [--problems GRP,LAT] [--limit N] \
         [--flatten both|on|off]
 
+    # abstraction sets from nt.expand instead of the Twitch runs:
+    python -m nt.single_runs --sets out/expand/sets.jsonl out/single_expand.jsonl ...
+
 Output rows (one per run):
     {"problem", "setting", "kind": "base"|"set"|"single",
      "abstractions": [...], "status", "cps", ..., "ratio"}
@@ -101,9 +104,12 @@ def _run(job, max_cps, wall_timeout, schedule):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("labels")
-    ap.add_argument("tptp_dir")
+    ap.add_argument("labels", nargs="?", help="data/labels.jsonl (not with --sets)")
+    ap.add_argument("tptp_dir", nargs="?", help="Twitch's data/TPTP (not with --sets)")
     ap.add_argument("out")
+    ap.add_argument("--sets", metavar="FILE",
+                    help="abstraction sets from nt.expand (rows with problem, path, "
+                         "abstractions), instead of the best Twitch set per problem")
     ap.add_argument("--max-cps", type=int, default=2_000_000)
     ap.add_argument("--wall-timeout", type=float, default=1200.0)
     ap.add_argument("--workers", type=int, default=twee.default_workers())
@@ -123,9 +129,18 @@ def main() -> None:
                          f"default {twee.DEFAULT_SCHEDULE}")
     args = ap.parse_args()
 
-    paths = {os.path.basename(p)[:-2]: p
-             for p in glob.glob(os.path.join(args.tptp_dir, "*_UEQ_UNSAT", "*.p"))}
-    sets = best_sets(args.labels)
+    if args.sets:
+        if args.labels or args.tptp_dir:
+            ap.error("give either --sets or LABELS TPTP_DIR, not both")
+        rows = [json.loads(l) for l in open(args.sets) if l.strip()]
+        paths = {r["problem"]: r["path"] for r in rows}
+        sets = {r["problem"]: r["abstractions"] for r in rows}
+    else:
+        if not (args.labels and args.tptp_dir):
+            ap.error("need LABELS and TPTP_DIR, or --sets")
+        paths = {os.path.basename(p)[:-2]: p
+                 for p in glob.glob(os.path.join(args.tptp_dir, "*_UEQ_UNSAT", "*.p"))}
+        sets = best_sets(args.labels)
     domains = [d for d in args.problems.split(",") if d]
     problems = sorted(p for p in sets if p in paths
                       and (not domains or p[:3] in domains))

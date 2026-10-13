@@ -17,6 +17,14 @@ source slurm/vera.env
 
 K=$SLURM_ARRAY_TASK_ID
 N=$SLURM_ARRAY_TASK_COUNT
-python -m nt.single_runs data/labels.jsonl "$TWITCH_DIR/data/TPTP" \
-    "out/single_${K}.jsonl" --shard "$K/$N" --max-cps "$MAX_CPS" \
+# SETS=<file from nt.expand> labels those sets instead of the Twitch ones;
+# NAME sets the output prefix (default "single").
+if [[ -n "${SETS:-}" ]]; then
+    inputs=(--sets "$SETS")
+else
+    inputs=(data/labels.jsonl "$TWITCH_DIR/data/TPTP")
+fi
+# shellcheck disable=SC2086  # EXTRA_ARGS is word-split and globbed on purpose
+python -m nt.single_runs "${inputs[@]}" \
+    "out/${NAME:-single}_${K}.jsonl" --shard "$K/$N" --max-cps "$MAX_CPS" \
     --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}

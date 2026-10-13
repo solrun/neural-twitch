@@ -20,6 +20,7 @@ Environment: TWEE_PATH (binary), TPTP_ROOT (for axiom includes).
 
 from __future__ import annotations
 
+import gzip
 import os
 import re
 import signal
@@ -137,6 +138,19 @@ def parse_stats(output: str) -> dict | None:
             "cpu_seconds": float(m.group(6)) if m.group(6) else None}
 
 
+def write_text(path: str, text: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "wt") as f:
+        f.write(text)
+
+
+def read_text(path: str) -> str:
+    opener = gzip.open if path.endswith(".gz") else open
+    with opener(path, "rt") as f:
+        return f.read()
+
+
 def _run_capped(cmd: list[str], wall_timeout: float) -> tuple[str, str]:
     """Run cmd and return (stdout, stderr); raise subprocess.TimeoutExpired
     after wall_timeout seconds.
@@ -169,10 +183,16 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         max_cps: int, wall_timeout: float = 600.0,
         twee: str | None = None, tptp_root: str | None = None,
         extra_flags: list[str] | None = None,
-        schedule: str | int | None = DEFAULT_SCHEDULE) -> RunResult:
+        schedule: str | int | None = DEFAULT_SCHEDULE,
+        proof_path: str | None = None) -> RunResult:
     """Run Twee once under the given housekeeping schedule (see the module
     docstring). "none" runs Twee's normal CPU-time schedule, whose CP counts
-    are not reproducible."""
+    are not reproducible.
+
+    With proof_path, Twee prints its proof with the flags Twitch uses for
+    abstraction extraction (--all-lemmas --show-peaks), and a proved run's
+    output is written there (gzipped if the name ends in .gz). Proof
+    presentation happens after the search, so the CP count is unchanged."""
     twee = twee or os.environ["TWEE_PATH"]
     tptp_root = tptp_root or os.environ.get("TPTP_ROOT", "")
     with open(problem_path) as f:
@@ -183,8 +203,9 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
             tmp.write("\n\n" + hints_block(abstractions))
         tmp_path = tmp.name
     sched = schedule_flags(schedule)
+    output_flags = ["--all-lemmas", "--show-peaks"] if proof_path else ["--no-proof"]
     cmd = [twee, tmp_path, *BASE_FLAGS, *sched, *setting.flags(),
-           "--max-cps", str(max_cps), "--print-stats", "--quiet", "--no-proof",
+           "--max-cps", str(max_cps), "--print-stats", "--quiet", *output_flags,
            *(extra_flags or [])]
     if tptp_root:
         cmd += ["--root", tptp_root]
@@ -196,6 +217,8 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         if stats is None:
             return RunResult("error", None, None, None, wall, (err or out)[-2000:])
         status = "proved" if stats["solved"] else "budget"
+        if proof_path and status == "proved":
+            write_text(proof_path, out)
         return RunResult(status, stats["cps"], stats["rules_created"],
                          stats["active_rules"], wall,
                          allocated_bytes=stats["allocated_bytes"],

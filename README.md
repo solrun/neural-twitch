@@ -192,6 +192,46 @@ The CP budget needs calibrating once the binary exists: pick it so the
 baseline still proves nearly all 306 problems, otherwise most ratios are
 undefined.
 
+## Growing the dataset
+
+`nt/expand.py` produces new problems and abstraction sets in three stages;
+`nt.single_runs --sets` then labels them exactly like the Twitch sets.
+
+| Stage | What it does |
+|---|---|
+| `base` | Baseline runs (allocation clock, both flattening settings, 1000 s cap) that keep Twee's proof (`--all-lemmas --show-peaks`, gzipped under `out/expand/proofs/`). Rows have the calibration format, so they double as `--calibration` input. |
+| `hindsight` | For each proof needing at least 10k CPs, takes up to 5 lemmas (latest in the proof first) and writes each as a new problem: same axioms and includes, the lemma skolemised as the negated conjecture. Lemmas mentioning the goal's constants or symbols introduced by goal flattening, axioms, trivial lemmas and duplicates are dropped. Writes a manifest for `base`. |
+| `abstract` | Runs Twitch's own local-abstraction extraction on each proof (proof terms, Stitch with 10 iterations and max arity 10, Twitch's filters and expansion) and canonicalises the result. Imports Twitch's code from `TWITCH_DIR` (that repo has no licence file, so it isn't copied here); needs `stitch_core` and `python-dotenv`. |
+
+ETP problems get the prefix `ETP-` (e.g. `ETP-1076_102`) and hindsight
+subproblems the suffix `_hsK`, so names still start with their domain.
+
+```bash
+pip install -r requirements.txt            # adds stitch_core, python-dotenv
+mkdir -p logs out/expand
+T=$HOME/ijcar26-twee_abstractions/data/TPTP
+# 1. proofs for the ETP problems and for all TPTP UEQ problems (job arrays)
+sbatch --array=0-7 --export=ALL,NAME=etp,INPUTS=$T/ETP_UEQ_UNSAT slurm/expand_base.sbatch
+sbatch --array=0-7 --export=ALL,NAME=tptp,INPUTS="$T/*_UEQ_UNSAT",EXTRA_ARGS="--exclude ETP" \
+    slurm/expand_base.sbatch
+cat out/expand/etp_base_*.jsonl > out/expand/etp_base.jsonl
+cat out/expand/tptp_base_*.jsonl > out/expand/tptp_base.jsonl
+# 2. hindsight subproblems (seconds; fine on a login node), then their proofs
+python -m nt.expand hindsight out/expand/tptp_base.jsonl out/expand/etp_base.jsonl \
+    --out-dir out/expand/hindsight
+sbatch --array=0-7 --export=ALL,NAME=hs,INPUTS=out/expand/hindsight/manifest.jsonl \
+    slurm/expand_base.sbatch
+cat out/expand/hs_base_*.jsonl > out/expand/hs_base.jsonl
+# 3. abstraction sets (Stitch; one node)
+srun -c 32 -t 2:00:00 python -m nt.expand abstract \
+    out/expand/etp_base.jsonl out/expand/hs_base.jsonl --out out/expand/sets.jsonl
+# 4. labels
+sbatch --array=0-31 --export=ALL,MAX_CPS=6000000,SETS=out/expand/sets.jsonl,NAME=single_expand,\
+EXTRA_ARGS="--wall-timeout 2400 --calibration out/expand/etp_base.jsonl out/expand/hs_base.jsonl" \
+    slurm/single_runs.sbatch
+cat out/single_expand_*.jsonl > out/single_expand.jsonl
+```
+
 ## Next steps
 
 1. **Deterministic cost in Twee.** Patches written (`twee-print-stats.patch`,
@@ -200,10 +240,8 @@ undefined.
 2. **Single-abstraction runs.** Harness written (`nt/single_runs.py`).
    Remaining: calibrate the CP budget and run it. The result answers whether
    individual labels predict set-level speedups.
-3. **ETP data.** The Twitch repo already contains 1,027 self-contained
-   Equational Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` (one
-   binary operation, no includes) that the paper does not use. Running the
-   `base` and `local_abs` stages on them is the cheapest way to grow the
-   dataset.
-4. **Hindsight subproblems.** Extract derived lemmas from the existing base
-   proofs as new goals (Phase 1, source 2).
+3. **ETP data.** The Twitch repo contains 1,027 self-contained Equational
+   Theories Project problems in `data/TPTP/ETP_UEQ_UNSAT` that the paper
+   does not use. Code written (`nt.expand`, see above); remaining: run it.
+4. **Hindsight subproblems.** Derived lemmas from base proofs as new goals.
+   Code written (`nt.expand hindsight`); remaining: run it.
