@@ -113,6 +113,31 @@ def _base_job(prob, flatten, proof_dir, wall_timeout, schedule):
             "proof": proof if r.status == "proved" else None}
 
 
+def finished_runs(path: str, schedule: str) -> set:
+    """(problem, flatten) pairs already in a base output file, for --resume.
+    Drops a truncated last line (a job killed mid-write) and runs that ended
+    in an error, rewriting the file without them, so those are run again."""
+    keep, done, dropped = [], set(), 0
+    for line in open(path):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            dropped += 1
+            continue
+        if r["status"] == "error" or r.get("schedule") != schedule:
+            dropped += 1
+            continue
+        keep.append(line if line.endswith("\n") else line + "\n")
+        done.add((r["problem"], r["flatten"]))
+    if dropped:
+        with open(path, "w") as f:
+            f.writelines(keep)
+        print(f"dropped {dropped} truncated, failed or other-schedule rows from {path}")
+    return done
+
+
 def cmd_base(args) -> None:
     probs = collect_problems(args.inputs)
     if args.exclude:
@@ -128,11 +153,19 @@ def cmd_base(args) -> None:
     probs = twee.select_shard(probs, args.shard)
     modes = FLATTEN_MODES[args.flatten]
     jobs = [(p, f) for p in probs for f in modes]
-    print(f"{len(probs)} problems x {len(modes)} flattening settings, wall cap "
-          f"{args.wall_timeout}s, schedule {args.schedule}, {args.workers} workers", flush=True)
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    mode = "w"
+    if args.resume and os.path.exists(args.out):
+        done = finished_runs(args.out, args.schedule)
+        before = len(jobs)
+        jobs = [(p, f) for p, f in jobs if (p["problem"], f) not in done]
+        print(f"resuming: {before - len(jobs)} runs already in {args.out}, "
+              f"{len(jobs)} to go", flush=True)
+        mode = "a"
+    print(f"{len(probs)} problems x {len(modes)} flattening settings, {len(jobs)} runs, wall cap "
+          f"{args.wall_timeout}s, schedule {args.schedule}, {args.workers} workers", flush=True)
     t0, counts = time.monotonic(), collections.Counter()
-    with open(args.out, "w") as out, ProcessPoolExecutor(args.workers) as ex:
+    with open(args.out, mode) as out, ProcessPoolExecutor(args.workers) as ex:
         futs = [ex.submit(_base_job, p, f, args.proof_dir, args.wall_timeout, args.schedule)
                 for p, f in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
@@ -182,9 +215,11 @@ def equation_key(lhs, rhs) -> str:
 
 
 def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
-                         tptp_root: str | None) -> tuple[list[dict], collections.Counter]:
+                         tptp_root: str | None, examples: dict | None = None
+                         ) -> tuple[list[dict], collections.Counter]:
     """Up to per_problem distinct lemmas from the given proofs, latest in
-    the proof first, that are usable as standalone goals."""
+    the proof first, that are usable as standalone goals. If `examples` is
+    given, a few dropped lemmas are recorded there per reason."""
     axioms = tptp.axiom_statements(problem_path, tptp_root)
     sig = tptp.signature(axioms)
     known = set()
@@ -204,6 +239,12 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
             ranked.append((rank, pi, lem))
     ranked.sort(key=lambda x: (x[0], x[1]))
     picked, seen = [], set()
+
+    def note(reason, ls, rs, detail=""):
+        if examples is not None and len(examples.setdefault(reason, [])) < 8:
+            examples[reason].append(f"{os.path.basename(problem_path)}: {ls} = {rs}"
+                                    + (f"   [{detail}]" if detail else ""))
+
     for _, pi, (num, ls, rs) in ranked:
         if len(picked) >= per_problem:
             break
@@ -212,12 +253,15 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
             continue
         try:
             l, r = parse(ls), parse(rs)
-        except ParseError:
+        except ParseError as e:
             why["unparsable"] += 1
+            note("unparsable", ls, rs, str(e))
             continue
         used = dict(symbols(l)) | dict(symbols(r))
-        if any(sig.get(f) != n for f, n in used.items()):
+        outside = sorted(f"{f}/{n}" for f, n in used.items() if sig.get(f) != n)
+        if outside:
             why["symbol outside the axioms"] += 1
+            note("symbol outside the axioms", ls, rs, ", ".join(outside))
             continue
         if l == r:
             why["trivial"] += 1
@@ -244,14 +288,14 @@ def cmd_hindsight(args) -> None:
             by_problem[r["problem"]].append(r)
     os.makedirs(args.out_dir, exist_ok=True)
     manifest = os.path.join(args.out_dir, "manifest.jsonl")
-    why_total, n = collections.Counter(), 0
+    why_total, n, examples = collections.Counter(), 0, {}
     with open(manifest, "w") as man:
         for prob in sorted(by_problem):
             rs = sorted(by_problem[prob], key=lambda r: not r["flatten"])
             src = rs[0]
             try:
                 cands, why = hindsight_candidates(src["path"], [r["proof"] for r in rs],
-                                                  args.per_problem, args.tptp_root)
+                                                  args.per_problem, args.tptp_root, examples)
             except FileNotFoundError as e:
                 print(f"{prob}: {e}", file=sys.stderr)
                 why_total["missing include"] += 1
@@ -275,6 +319,11 @@ def cmd_hindsight(args) -> None:
     print(f"{len(by_problem)} source problems with proofs >= {args.min_source_cps} CPs; "
           f"wrote {n} subproblems to {args.out_dir}")
     print("lemma filter:", dict(why_total.most_common()))
+    if args.show_dropped:
+        for reason, exs in examples.items():
+            print(f"\nexamples, {reason}:")
+            for e in exs[:args.show_dropped]:
+                print("  " + e)
     print(f"manifest: {manifest}")
 
 
@@ -381,6 +430,8 @@ def main() -> None:
     b.add_argument("--sample", type=int, default=0, help="random N problems (fixed by --seed)")
     b.add_argument("--seed", type=int, default=0)
     b.add_argument("--shard", default="", metavar="K/N")
+    b.add_argument("--resume", action="store_true",
+                   help="keep finished runs in --out and run only the rest")
     b.set_defaults(func=cmd_base)
 
     h = sub.add_parser("hindsight", help="lemmas from proofs as new problems")
@@ -391,6 +442,8 @@ def main() -> None:
     h.add_argument("--min-source-cps", type=int, default=DEFAULT_MIN_CPS,
                    help="only use proofs that needed at least this many CPs")
     h.add_argument("--tptp-root", default=os.environ.get("TPTP_ROOT"))
+    h.add_argument("--show-dropped", type=int, default=0, metavar="N",
+                   help="print up to N dropped lemmas per reason")
     h.set_defaults(func=cmd_hindsight)
 
     a = sub.add_parser("abstract", help="Twitch/Stitch abstraction sets from proofs")

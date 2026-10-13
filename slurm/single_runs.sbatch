@@ -16,7 +16,9 @@ source slurm/vera.env
 : "${MAX_CPS:?pass the CP budget with --export=ALL,MAX_CPS=...}"
 
 K=$SLURM_ARRAY_TASK_ID
-N=$SLURM_ARRAY_TASK_COUNT
+# SHARDS fixes the shard count, so a rerun of some shards (--array=2,5)
+# still splits the problems the same way as the original array.
+N=${SHARDS:-$SLURM_ARRAY_TASK_COUNT}
 # SETS=<file from nt.expand> labels those sets instead of the Twitch ones;
 # NAME sets the output prefix (default "single").
 if [[ -n "${SETS:-}" ]]; then
