@@ -269,10 +269,15 @@ srun -c 32 -t 2:00:00 python -m nt.expand abstract \
     out/expand/etp_base.jsonl out/expand/hs_base.jsonl --out out/expand/sets.jsonl
 # 4. labels
 sbatch --array=0-31 --export=ALL,MAX_CPS=6000000,SETS=out/expand/sets.jsonl,NAME=single_expand,\
-EXTRA_ARGS="--wall-timeout 2400 --calibration out/expand/etp_base.jsonl out/expand/hs_base.jsonl" \
+EXTRA_ARGS="--weights f0.5 --wall-timeout 2400 --calibration out/expand/hs_base.jsonl" \
     slurm/single_runs.sbatch
 cat out/single_expand_*.jsonl > out/single_expand.jsonl
 ```
+
+`--weights f0.5` runs one weight setting (both flattening settings): in the
+first experiment the three weight settings gave closely agreeing labels, and
+factor 0.5 agrees best with cost 1 (Spearman 0.87–0.89), so one setting keeps
+nearly all the information at a third of the cost.
 
 ## Next steps
 
