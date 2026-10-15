@@ -91,8 +91,13 @@ def equation_sides(formula: str) -> tuple[str, str, bool] | None:
     f = formula.strip()
     while f.startswith("(") and f.endswith(")") and _balanced(f[1:-1]):
         f = f[1:-1].strip()
-    depth = 0
-    for i, c in enumerate(f):
+    depth, i = 0, 0
+    while i < len(f):
+        c = f[i]
+        if c in "'\"":                    # quoted names such as '>=' or '==>'
+            j = f.find(c, i + 1)
+            i = len(f) if j < 0 else j + 1
+            continue
         if c == "(":
             depth += 1
         elif c == ")":
@@ -101,15 +106,22 @@ def equation_sides(formula: str) -> tuple[str, str, bool] | None:
             return f[:i].strip(), f[i + 2:].strip(), True
         elif depth == 0 and c == "=":
             return f[:i].strip(), f[i + 1:].strip(), False
+        i += 1
     return None
 
 
 def _balanced(s: str) -> bool:
-    depth = 0
-    for c in s:
+    depth, i = 0, 0
+    while i < len(s):
+        c = s[i]
+        if c in "'\"":
+            j = s.find(c, i + 1)
+            i = len(s) if j < 0 else j + 1
+            continue
         depth += (c == "(") - (c == ")")
         if depth < 0:
             return False
+        i += 1
     return depth == 0
 
 
