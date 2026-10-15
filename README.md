@@ -231,6 +231,15 @@ which adds ~3–4 points to "hurts").
    flattening. Rare, but worth reporting upstream with the hint that
    triggers it.
 
+**Hindsight subproblems behave the same way** (8,146 runs on 497
+subproblems, factor 0.5, both flattening settings): singles help in 20%
+(flattening on) and 30% (off) of runs; best single predicts the set with
+Spearman 0.67; a member helps but the set does not in 24%, synergy in 5%;
+flattening on vs off agree with Spearman 0.24. So the two label sets can be
+pooled: about 5,300 (problem, abstraction) pairs on about 790 problems.
+Subproblems share their source's axioms, so they add depth within theories,
+not new theories.
+
 ## Growing the dataset
 
 `nt/expand.py` produces new problems and abstraction sets in three stages;
