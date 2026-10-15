@@ -40,11 +40,13 @@ from nt.twee import Setting
 FLATTEN_MODES = {"both": (True, False), "on": (True,), "off": (False,)}
 
 
-def settings(flatten_modes=(True, False)) -> list[Setting]:
-    return [s for flatten in flatten_modes
-            for s in (Setting(factor=0.0, cost=1.0, flatten_goal=flatten),
-                      Setting(factor=0.2, flatten_goal=flatten),
-                      Setting(factor=0.5, flatten_goal=flatten))]
+# Weight settings: (--hint-skel-factor, --hint-skel-cost).
+WEIGHTS = {"cost1": (0.0, 1.0), "f0.2": (0.2, 0.0), "f0.5": (0.5, 0.0)}
+
+
+def settings(flatten_modes=(True, False), weights=tuple(WEIGHTS)) -> list[Setting]:
+    return [Setting(factor=WEIGHTS[w][0], cost=WEIGHTS[w][1], flatten_goal=flatten)
+            for flatten in flatten_modes for w in weights]
 
 MIN_BASE = 1.0  # seconds, as in nt.analyze
 
@@ -63,8 +65,8 @@ def best_sets(labels_path: str) -> dict[str, list[str]]:
 
 
 def jobs_for(problem: str, path: str, abstractions: list[str],
-             flatten_modes=(True, False)):
-    for s in settings(flatten_modes):
+             flatten_modes=(True, False), weights=tuple(WEIGHTS)):
+    for s in settings(flatten_modes, weights):
         yield problem, path, s, "base", []
         yield problem, path, s, "set", abstractions
         if len(abstractions) > 1:
@@ -120,6 +122,10 @@ def main() -> None:
     ap.add_argument("--calibration", nargs="+", metavar="FILE",
                     help="calibration output for the same --schedule; skip (problem, "
                          "flattening) pairs whose baseline did not prove within --max-cps")
+    ap.add_argument("--weights", default=",".join(WEIGHTS),
+                    help=f"comma-separated weight settings out of {', '.join(WEIGHTS)} "
+                         "(default: all; the first experiment found their labels agree "
+                         "closely, so one is enough for new problems)")
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: run with it on and off (default), "
                          "or only one of them")
@@ -147,7 +153,12 @@ def main() -> None:
     if args.limit:
         problems = problems[:args.limit]
     problems = twee.select_shard(problems, args.shard)
-    jobs = [j for p in problems for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten])]
+    weights = tuple(w for w in args.weights.split(",") if w)
+    bad = [w for w in weights if w not in WEIGHTS]
+    if bad or not weights:
+        ap.error(f"unknown weight settings {bad}; choose from {', '.join(WEIGHTS)}")
+    jobs = [j for p in problems
+            for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten], weights)]
     if args.calibration:
         ok = proved_baselines(args.calibration, args.max_cps, args.schedule)
         n = len(jobs)
