@@ -1,0 +1,17 @@
+# Apptainer image for training on Arrhenius GPU nodes (GH200: aarch64 + H100).
+# NVIDIA's PyTorch container is published for arm64; the model needs nothing
+# beyond PyTorch. Check https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch
+# for current tags and pin one.
+#
+# Build inside a GPU job (images built on login nodes are the wrong
+# architecture), into project storage (images under $HOME are not allowed):
+#   interactive -A <project> -p gpu --gpus 1 -t 1:00:00
+#   apptainer build /nobackup/proj/disk/<project>/containers/pytorch.sif slurm/arrhenius/pytorch.def
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:25.06-py3
+
+%environment
+    export PYTHONNOUSERSITE=1
+
+%test
+    python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)"
