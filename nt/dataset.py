@@ -161,7 +161,8 @@ def main() -> None:
             drop["clause not a parsable unit equation"] += 1
             continue
         graphs[p] = build_graph(clauses)
-        meta[p] = {"domain": paths[p]["domain"], "axioms": axiomatization_key(clauses)}
+        meta[p] = {"domain": paths[p]["domain"], "axioms": axiomatization_key(clauses),
+                   "path": os.path.abspath(paths[p]["path"])}
 
     # splits
     def group_key(p: str) -> str:

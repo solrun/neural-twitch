@@ -27,6 +27,8 @@ published with the Twitch paper
 | `nt/graph.py` | Problem graphs for the encoder (equation/term/variable/symbol nodes, goal flag, argument positions) and abstractions as pointer-decoder actions, with masks. |
 | `nt/dataset.py` | Training dataset: labels joined with graphs, split by axiomatization, hard problems held out, optional text export for an LLM. |
 | `data/hard_problems.txt` | Twitch's hard problems (Twee alone fails in 1000 s), held out as the final test set. |
+| `nt/model/` | The generator in plain PyTorch: graph encoder, pointer decoder, scorer (`net.py`), data loading (`data.py`), training with a `--smoke` self-test (`train.py`), and prediction of sets for Twee (`predict.py`). |
+| `slurm/arrhenius/` | Apptainer recipe (NVIDIA PyTorch, arm64) and GPU job script for Arrhenius. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
@@ -325,6 +327,47 @@ the plan and the single-abstraction results:
   stay together; stable hash assignment; `--holdout-domain` for
   leave-domain-out; `data/hard_problems.txt` always held out. `stats.md`
   warns if one theory dominates; `--group source` is the fallback.
+
+## Training the generator
+
+The model (`nt/model/`) follows the plan: a typed message-passing encoder
+over the problem graph, a GRU pointer decoder that emits an abstraction as
+symbol pointers and variable slots (masked so every sample is a well-formed
+pattern), and a scorer head on the decoder state that predicts whether an
+abstraction helps. Training maximises the likelihood of the helpful
+abstractions (weight 1/(1+r), normalised per example) plus the scorer's
+loss on all labelled ones; the goal-flattening setting is an input.
+Validation reports NLL, the scorer's AUC, hit@k (a known helpful
+abstraction among the scorer's top k of 32 samples) and the share of valid
+samples. Only PyTorch is needed.
+
+First check the code on any machine with CPU PyTorch:
+
+```bash
+python -m nt.model.train --smoke     # ~1 minute; must print "smoke test PASSED"
+```
+
+On Arrhenius (GH200 = aarch64 + H100): build the container inside a GPU job,
+copy the repository and `data/dataset` to project storage, then train:
+
+```bash
+interactive -A <project> -p gpu --gpus 1 -t 1:00:00
+apptainer build /nobackup/proj/disk/<project>/containers/pytorch.sif slurm/arrhenius/pytorch.def
+exit
+mkdir -p logs runs
+sbatch -A <project> --export=ALL,SIF=/nobackup/proj/disk/<project>/containers/pytorch.sif,NAME=first \
+    slurm/arrhenius/train.sbatch
+```
+
+Then generate sets for the test (or hard) problems and evaluate them with
+Twee on Vera:
+
+```bash
+python -m nt.model.predict --checkpoint runs/first/best.pt --data data/dataset \
+    --split test --top 1,3,5 --out out/pred
+python -m nt.single_runs --sets out/pred_k3_flat.jsonl out/eval_k3_flat.jsonl \
+    --flatten on --weights f0.5 --max-cps 6000000
+```
 
 ## Next steps
 
