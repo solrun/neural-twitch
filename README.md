@@ -24,6 +24,9 @@ published with the Twitch paper
 | `nt/twee.py` | Runs the patched Twee on a problem plus hints under a deterministic `--max-cps` budget and parses the statistics. |
 | `nt/single_runs.py` | The single-abstraction experiment (next step 2 below). |
 | `single_analysis.md` | Report of the single-abstraction runs. |
+| `nt/graph.py` | Problem graphs for the encoder (equation/term/variable/symbol nodes, goal flag, argument positions) and abstractions as pointer-decoder actions, with masks. |
+| `nt/dataset.py` | Training dataset: labels joined with graphs, split by axiomatization, hard problems held out, optional text export for an LLM. |
+| `data/hard_problems.txt` | Twitch's hard problems (Twee alone fails in 1000 s), held out as the final test set. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
@@ -278,6 +281,41 @@ cat out/single_expand_*.jsonl > out/single_expand.jsonl
 first experiment the three weight settings gave closely agreeing labels, and
 factor 0.5 agrees best with cost 1 (Spearman 0.87–0.89), so one setting keeps
 nearly all the information at a third of the cost.
+
+## Preparing the training data
+
+```bash
+python -m nt.analyze_single out/single.jsonl data/labels.jsonl --labels-out data/single_labels.jsonl
+python -m nt.analyze_single out/single_expand.jsonl data/labels.jsonl --labels-out data/expand_labels.jsonl
+python -m nt.dataset --labels data/single_labels.jsonl data/expand_labels.jsonl \
+    --tptp-dir $TWITCH_DIR/data/TPTP --problems out/expand/hindsight/manifest.jsonl \
+    --out data/dataset --text
+cat data/dataset/stats.md
+```
+
+Needs `TPTP_ROOT` (most problems include axiom files). Design choices, from
+the plan and the single-abstraction results:
+
+* **Graph.** One node per clause (role axiom/hypothesis/goal, negated flag),
+  per distinct application or constant (ground subterms shared across the
+  problem, others within their clause), per variable per clause, and per
+  symbol (arity, name for optional named embeddings). Equations are
+  unordered (`side` edges); `arg` edges carry the argument position.
+* **Targets.** An abstraction is a prefix-order sequence of actions:
+  `[0, s]` = pointer to symbol node s, `[1, k]` = variable slot k (k equal to
+  the number of open slots opens a new one), so nonlinear patterns like
+  f(X0, X0) are explicit. `nt.graph.valid_next` gives the decoder's mask
+  (no variable at the root; arities close the term). Abstractions using
+  symbols the problem lacks are dropped (in Twitch's sets: 76 of 5,413, all
+  `equals`/`tuple` from Twee's encoding of existential goals).
+* **Labels.** Per abstraction, conditioned on goal flattening (an input to
+  the model) and weight setting; ratio, class and lower-bound flag are kept
+  so loss weighting stays a training-time choice.
+* **Splits.** By axiomatization (role-`axiom` clauses up to renaming), so
+  TPTP variants of one theory and hindsight subproblems with their source
+  stay together; stable hash assignment; `--holdout-domain` for
+  leave-domain-out; `data/hard_problems.txt` always held out. `stats.md`
+  warns if one theory dominates; `--group source` is the fallback.
 
 ## Next steps
 
