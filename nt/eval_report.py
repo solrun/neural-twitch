@@ -70,8 +70,55 @@ def load_splits(data_dir: str) -> dict:
     return splits
 
 
+ALLOC_BUDGET: float | None = None   # bytes; set by --alloc-budget
+
+
 def proved(r) -> bool:
-    return bool(r) and r["status"] == "proved"
+    """Proved, and within the allocation budget if one is set."""
+    if not r or r["status"] != "proved":
+        return False
+    return ALLOC_BUDGET is None or (r.get("allocated_bytes") or 0) <= ALLOC_BUDGET
+
+
+def cost(r) -> float:
+    """CPs, or allocated bytes when an allocation budget is set."""
+    return r.get("allocated_bytes") if ALLOC_BUDGET is not None else r["cps"]
+
+
+def budget_check(runs: dict) -> list[str]:
+    """Allocation rate of proved runs and the shortest wall-clock timeout:
+    an allocation budget below (low rate x shortest timeout) is reached by
+    every timed-out run, so re-scoring with it is deterministic."""
+    rows = [r for probs in runs.values() for rr in probs.values() for r in rr.values()]
+    rates = sorted(r["allocated_bytes"] / r["cpu_seconds"] for r in rows
+                   if r["status"] == "proved" and r.get("allocated_bytes")
+                   and r.get("cpu_seconds") and r["cpu_seconds"] >= 10)
+    walls = [r["wall"] for r in rows if r["status"] == "timeout" and r.get("wall")]
+    if not rates:
+        return ["(no allocation statistics in the runs)", ""]
+    q = lambda f: rates[min(len(rates) - 1, int(f * len(rates)))]
+    lines = ["## 0. Budget check", "",
+             f"Allocation rate of proved runs over 10 s: min {rates[0] / 1e9:.2f}, "
+             f"1% {q(0.01) / 1e9:.2f}, median {q(0.5) / 1e9:.2f} GB/s "
+             f"({len(rates)} runs)."]
+    if walls:
+        safe = q(0.01) * min(walls)
+        lines.append(f"Shortest wall-clock timeout {min(walls):.0f} s, so timed-out runs "
+                     f"allocated at least ~{safe / 1e12:.1f} TB (1% rate).")
+        if ALLOC_BUDGET is not None:
+            ok = ALLOC_BUDGET <= safe
+            lines.append(f"Allocation budget {ALLOC_BUDGET / 1e12:.2f} TB: "
+                         + ("below that, so every timeout counts as over budget and the "
+                            "results are deterministic." if ok else
+                            "ABOVE that: some timeouts might have finished within the "
+                            "budget; choose a smaller one."))
+        else:
+            lines.append(f"Suggested --alloc-budget: at most {safe / 1e12:.1f}e12.")
+    over = sum(1 for r in rows if r["status"] == "proved" and ALLOC_BUDGET is not None
+               and (r.get("allocated_bytes") or 0) > ALLOC_BUDGET)
+    if ALLOC_BUDGET is not None:
+        lines.append(f"{over} proved runs exceed the budget and count as unproved.")
+    return lines + [""]
 
 
 def gmean(xs):
@@ -98,15 +145,15 @@ def per_config(runs: dict, splits: dict) -> list[str]:
             sp = sum(proved(r["set"]) for r in rows)
             new = sum(proved(r["set"]) and not proved(r["base"]) for r in rows)
             lost = sum(proved(r["base"]) and not proved(r["set"]) for r in rows)
-            ratios = [r["set"]["cps"] / r["base"]["cps"] for r in rows
-                      if proved(r["base"]) and proved(r["set"]) and r["base"]["cps"]]
+            ratios = [cost(r["set"]) / cost(r["base"]) for r in rows
+                      if proved(r["base"]) and proved(r["set"]) and cost(r["base"])]
             med = statistics.median(ratios) if ratios else None
             faster = sum(x <= FAST for x in ratios)
             slower = sum(x >= 1 / FAST for x in ratios)
             lines.append(f"| {method} | {k} | {'on' if flat else 'off'} | {split} | {len(rows)} "
                          f"| {bp} | {sp} | {new} | {lost} | {len(ratios)} | {fmt(med)} "
                          f"| {fmt(gmean(ratios))} | {faster} | {slower} |")
-    lines += ["", "ratio = CPs with the set / CPs without, on problems both prove; "
+    lines += ["", "ratio = cost with the set / cost without (CPs, or allocated bytes with --alloc-budget), on problems both prove; "
               "below 1 is faster. Ratios within 0.67–1.5 are within schedule noise.", ""]
     return lines
 
@@ -134,8 +181,8 @@ def head_to_head(runs: dict, splits: dict) -> list[str]:
                     pairs = by_split[split]
                     oa = sum(proved(x) and not proved(y) for x, y in pairs)
                     ob = sum(proved(y) and not proved(x) for x, y in pairs)
-                    rat = [x["cps"] / y["cps"] for x, y in pairs
-                           if proved(x) and proved(y) and y["cps"]]
+                    rat = [cost(x) / cost(y) for x, y in pairs
+                           if proved(x) and proved(y) and cost(y)]
                     lines.append(
                         f"| {a} | {b} | {k} | {'on' if flat else 'off'} | {split} | {len(pairs)} "
                         f"| {oa} | {ob} | {len(rat)} | {fmt(statistics.median(rat) if rat else None)} "
@@ -227,7 +274,11 @@ def _cfg_list(by_cfg, p, method) -> str:
 
 
 def report(runs: dict, splits: dict, list_splits=("hard",)) -> str:
-    return "\n".join(["# Twee evaluation of generated sets", ""]
+    head = ["# Twee evaluation of generated sets", ""]
+    if ALLOC_BUDGET is not None:
+        head += [f"Re-scored with an allocation budget of {ALLOC_BUDGET:.3g} bytes: a run counts "
+                 "as proved only if it allocated at most that; ratios are allocation ratios.", ""]
+    return "\n".join(head + budget_check(runs)
                      + per_config(runs, splits) + head_to_head(runs, splits)
                      + portfolio(runs, splits) + complementarity(runs, splits, list_splits))
 
@@ -239,7 +290,12 @@ def main() -> None:
     ap.add_argument("--out", help="also write the report to this file")
     ap.add_argument("--list-splits", default="hard",
                     help="splits whose problems section 4 lists by name")
+    ap.add_argument("--alloc-budget", type=float, metavar="BYTES",
+                    help="count a run as proved only if it allocated at most BYTES "
+                         "(deterministic, unlike the wall clock); see section 0 for a safe value")
     args = ap.parse_args()
+    global ALLOC_BUDGET
+    ALLOC_BUDGET = args.alloc_budget
     files = [f for pat in args.files for f in (glob.glob(pat) or [pat])]
     # if a merged file and its shards are both given, use only the shards
     merged = {f for f in files if re.search(r"_\d+\.jsonl$", f) is None}
