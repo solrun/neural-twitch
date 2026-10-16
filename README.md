@@ -27,6 +27,9 @@ published with the Twitch paper
 | `nt/graph.py` | Problem graphs for the encoder (equation/term/variable/symbol nodes, goal flag, argument positions) and abstractions as pointer-decoder actions, with masks. |
 | `nt/dataset.py` | Training dataset: labels joined with graphs, split by axiomatization, hard problems held out, optional text export for an LLM. |
 | `data/hard_problems.txt` | Twitch's hard problems (Twee alone fails in 1000 s), held out as the final test set. |
+| `nt/baseline.py` | Non-learned baselines (abstractions that helped by name, and by shape instantiated with the problem's symbols), same metrics and splits as the model; can write Twee-ready sets. |
+| `nt/model/` | The generator in plain PyTorch: graph encoder, pointer decoder, scorer (`net.py`), data loading (`data.py`), training with a `--smoke` self-test (`train.py`), and prediction of sets for Twee (`predict.py`). |
+| `slurm/arrhenius/` | Apptainer recipe (NVIDIA PyTorch, arm64) and GPU job script for Arrhenius. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
@@ -231,6 +234,15 @@ which adds ~3–4 points to "hurts").
    flattening. Rare, but worth reporting upstream with the hint that
    triggers it.
 
+**Hindsight subproblems behave the same way** (8,146 runs on 497
+subproblems, factor 0.5, both flattening settings): singles help in 20%
+(flattening on) and 30% (off) of runs; best single predicts the set with
+Spearman 0.67; a member helps but the set does not in 24%, synergy in 5%;
+flattening on vs off agree with Spearman 0.24. So the two label sets can be
+pooled: about 5,300 (problem, abstraction) pairs on about 790 problems.
+Subproblems share their source's axioms, so they add depth within theories,
+not new theories.
+
 ## Growing the dataset
 
 `nt/expand.py` produces new problems and abstraction sets in three stages;
@@ -316,6 +328,90 @@ the plan and the single-abstraction results:
   stay together; stable hash assignment; `--holdout-domain` for
   leave-domain-out; `data/hard_problems.txt` always held out. `stats.md`
   warns if one theory dominates; `--group source` is the fallback.
+
+## Training the generator
+
+The model (`nt/model/`) follows the plan: a typed message-passing encoder
+over the problem graph, a GRU pointer decoder that emits an abstraction as
+symbol pointers and variable slots (masked so every sample is a well-formed
+pattern), and a scorer head on the decoder state that predicts whether an
+abstraction helps. Training maximises the likelihood of the helpful
+abstractions (weight 1/(1+r), normalised per example) plus the scorer's
+loss on all labelled ones; the goal-flattening setting is an input.
+Validation reports NLL, the scorer's AUC, hit@k (a known helpful
+abstraction among the scorer's top k of 32 samples) and the share of valid
+samples. Only PyTorch is needed.
+
+First check the code on any machine with CPU PyTorch:
+
+```bash
+python -m nt.model.train --smoke     # ~1 minute; must print "smoke test PASSED"
+```
+
+On Arrhenius (GH200 = aarch64 + H100): build the container inside a GPU job,
+copy the repository and `data/dataset` to project storage, then train:
+
+```bash
+interactive -A <project> -p gpu --gpus 1 -t 1:00:00
+apptainer build /nobackup/proj/disk/<project>/containers/pytorch.sif slurm/arrhenius/pytorch.def
+exit
+mkdir -p logs runs
+sbatch -A <project> --export=ALL,SIF=/nobackup/proj/disk/<project>/containers/pytorch.sif,NAME=first \
+    slurm/arrhenius/train.sbatch
+```
+
+Compare with the non-learned baselines on the same splits and metrics. Note
+that hit@k has a high floor: about 28% of labelled abstractions help and
+common patterns recur, so even random labels give hit@5 around 0.2-0.3. The
+gap to the baselines is what counts:
+
+```bash
+python -m nt.baseline --data data/dataset --write-sets out/base
+```
+
+Then generate sets for the test (or hard) problems and evaluate them with
+Twee on Vera (the baseline sets in out/base_* the same way):
+
+```bash
+python -m nt.model.predict --checkpoint runs/first/best.pt --data data/dataset \
+    --split test --top 1,3,5 --out out/pred
+python -m nt.single_runs --sets out/pred_k3_flat.jsonl out/eval_k3_flat.jsonl \
+    --flatten on --weights f0.5 --max-cps 6000000
+```
+
+First run (`runs/first`, defaults): best epoch 29 has val hit@1 0.287 and
+hit@5 0.525, against the baseline's 0.317 and 0.525; val NLL rises from
+epoch ~30 on (overfitting on ~1,000 examples). Sampling does not beat the
+baseline, but the baseline's top 200 holds a helpful abstraction for ~89%
+of val examples, so `nt.model.rerank` scores the baseline's candidates
+with the model (scorer, generator likelihood, and a rank fusion of both
+with the baseline order):
+
+```bash
+python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset
+python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset \
+    --pool 100 --method bgen --write-sets out/rerank     # sets for test,hard
+```
+
+Evaluate sets with Twee on Vera (one array task per file and shard), then
+summarise; the report's section 4 lists which hard problems only one method
+proves:
+
+```bash
+F=(out/rerank_k3_flat.jsonl out/rerank_k3_noflat.jsonl \
+   out/base_combined_k3_flat.jsonl out/base_combined_k3_noflat.jsonl)
+SHARDS=4
+sbatch -A <project> --array=0-$(( ${#F[@]} * SHARDS - 1 )) \
+    --export=ALL,SHARDS=$SHARDS,WALL=3600 slurm/eval_sets.sbatch "${F[@]}"
+python -m nt.eval_report 'out/eval/*.jsonl' --data data/dataset --out eval_report.md
+```
+
+First evaluation (k = 1, 3, 5): plain Twee proves 4 of the 96 hard problems
+in either flattening setting, generated sets 17-24. At k=1 the reranked sets
+beat the baseline's (13 vs 2 problems only one proves); at k=3 and 5 the
+baseline's are as good or better, presumably because likelihood reranking
+makes the list less varied. `--method mix` takes the reranked first
+candidate followed by the baseline order.
 
 ## Next steps
 
