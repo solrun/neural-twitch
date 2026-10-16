@@ -1,0 +1,101 @@
+problem	domain	clauses	rating	encoding	included
+ANA004-10	ANA	25	1.00	ifeq	yes
+ANA005-10	ANA	25	1.00	ifeq	yes
+ANA023-10	ANA	14	0.09	ifeq	yes
+ANA034-10	ANA	17	0.26	ifeq	yes
+ANA133-1	ANA	17	0.39	native	yes
+CAT010-10	CAT	16	0.04	ifeq	yes
+COM010-2	COM	5	0.00	native	yes
+CSR027-10	CSR	85	0.17	ifeq	yes
+CSR034-10	CSR	8012	0.48	ifeq	no (>=1000 clauses)
+CSR036-10	CSR	44220	0.91	ifeq	no (>=1000 clauses)
+CSR038-10	CSR	1138	0.57	ifeq	no (>=1000 clauses)
+CSR039-10	CSR	1138	0.65	ifeq	no (>=1000 clauses)
+CSR040-10	CSR	44220	0.96	ifeq	no (>=1000 clauses)
+CSR041-10	CSR	78	0.09	ifeq	yes
+CSR044-10	CSR	8012	0.78	ifeq	no (>=1000 clauses)
+CSR049-10	CSR	8012	0.91	ifeq	no (>=1000 clauses)
+CSR051-10	CSR	8012	0.30	ifeq	no (>=1000 clauses)
+CSR055-10	CSR	44219	0.74	ifeq	no (>=1000 clauses)
+CSR057-10	CSR	44220	0.78	ifeq	no (>=1000 clauses)
+CSR058-10	CSR	44220	0.70	ifeq	no (>=1000 clauses)
+CSR059-10	CSR	8012	0.61	ifeq	no (>=1000 clauses)
+CSR065-10	CSR	44220	0.91	ifeq	no (>=1000 clauses)
+CSR068-10	CSR	44220	0.70	ifeq	no (>=1000 clauses)
+CSR072-10	CSR	8012	0.30	ifeq	no (>=1000 clauses)
+CSR073-10	CSR	44220	0.78	ifeq	no (>=1000 clauses)
+HEN010-10	HEN	23	0.70	ifeq	yes
+KLE044-10	KLE	21	0.35	ifeq	yes
+KLE084-10	KLE	24	0.48	ifeq	yes
+KLE090-10	KLE	25	0.17	ifeq	yes
+KLE096-10	KLE	35	1.00	ifeq	yes
+KLE104-10	KLE	31	0.61	ifeq	yes
+KLE108-10	KLE	31	0.74	ifeq	yes
+KLE110-10	KLE	30	0.87	ifeq	yes
+KLE122-10	KLE	33	0.96	ifeq	yes
+KLE145-10	KLE	23	0.26	ifeq	yes
+KLE147-10	KLE	23	0.57	ifeq	yes
+KLE151-10	KLE	23	0.78	ifeq	yes
+KLE152-10	KLE	23	0.96	ifeq	yes
+KLE157-10	KLE	24	1.00	ifeq	yes
+KLE161-10	KLE	28	1.00	ifeq	yes
+KLE169-10	KLE	22	0.65	ifeq	yes
+LDA001-1	LDA	5	0.00	native	yes
+LDA002-1	LDA	12	0.00	native	yes
+LDA007-3	LDA	7	0.00	native	yes
+MSC015-10.027	MSC	30	1.00	ifeq	yes
+MSC015-10.030	MSC	33	1.00	ifeq	yes
+MVA001-1	MVA	19	1.00	native	yes
+MVA002-1	MVA	19	1.00	native	yes
+MVA003-1	MVA	19	0.91	native	yes
+MVA004-1	MVA	19	1.00	native	yes
+MVA005-1	MVA	19	1.00	native	yes
+MVA006-1	MVA	19	1.00	native	yes
+MVA007-1	MVA	19	1.00	native	yes
+MVA008-1	MVA	19	0.74	native	yes
+MVA009-1	MVA	19	0.74	native	yes
+MVA010-1	MVA	19	1.00	native	yes
+MVA011-1	MVA	19	0.74	native	yes
+MVA012-1	MVA	19	1.00	native	yes
+MVA013-1	MVA	19	1.00	native	yes
+MVA014-1	MVA	19	1.00	native	yes
+MVA015-1	MVA	19	1.00	native	yes
+NUM284-10.014	NUM	7	0.96	ifeq	yes
+NUN133-1	NUN	18	0.74	native	yes
+NUN134-1	NUN	15	0.22	native	yes
+PLA007-10	PLA	32	0.87	ifeq	yes
+PLA008-10	PLA	32	1.00	ifeq	yes
+PLA014-10	PLA	32	1.00	ifeq	yes
+PLA015-10	PLA	32	1.00	ifeq	yes
+PLA017-10	PLA	32	0.35	ifeq	yes
+PLA023-10	PLA	32	1.00	ifeq	yes
+PLA031-10.006	PLA	160	1.00	ifeq	yes
+PLA031-10.019	PLA	4836	1.00	ifeq	no (>=1000 clauses)
+PUZ039-10	PUZ	44	0.22	ifeq	yes
+PUZ056-10.020	PUZ	34	1.00	ifeq	yes
+PUZ056-10.030	PUZ	44	1.00	ifeq	yes
+PUZ131-10	PUZ	21	0.22	ifeq	yes
+SEU323-10	SEU	25	0.04	ifeq	yes
+SWV234-10	SWV	27	1.00	ifeq	yes
+SWV243-2	SWV	3	0.04	native	yes
+SWV262-2	SWV	4	0.00	native	yes
+SWV818-1	SWV	4	0.04	native	yes
+SWV819-1	SWV	5	0.09	native	yes
+SYN080-1	SYN	2	0.04	native	yes
+SYN083-1	SYN	2	0.04	native	yes
+SYN116-10	SYN	363	0.09	ifeq	yes
+SYN143-10	SYN	363	0.13	ifeq	yes
+SYN170-10	SYN	363	0.09	ifeq	yes
+SYN193-10	SYN	363	0.09	ifeq	yes
+SYN214-10	SYN	363	0.09	ifeq	yes
+SYN563-10	SYN	20	0.26	ifeq	yes
+SYN598-10	SYN	30	0.65	ifeq	yes
+SYN615-10	SYN	35	0.91	ifeq	yes
+SYN708-10	SYN	86	0.74	ifeq	yes
+SYN986-10.005	SYN	4	1.00	ifeq	yes
+SYN986-10.006	SYN	4	1.00	ifeq	yes
+TOP049-1	TOP	14	0.00	native	yes
+TOP050-1	TOP	35	0.17	native	yes
+TOP051-1	TOP	14	0.00	native	yes
+TOP052-1	TOP	145	0.61	native	yes
+TOP053-1	TOP	19	0.00	native	yes
