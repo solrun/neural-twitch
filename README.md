@@ -379,6 +379,20 @@ python -m nt.single_runs --sets out/pred_k3_flat.jsonl out/eval_k3_flat.jsonl \
     --flatten on --weights f0.5 --max-cps 6000000
 ```
 
+First run (`runs/first`, defaults): best epoch 29 has val hit@1 0.287 and
+hit@5 0.525, against the baseline's 0.317 and 0.525; val NLL rises from
+epoch ~30 on (overfitting on ~1,000 examples). Sampling does not beat the
+baseline, but the baseline's top 200 holds a helpful abstraction for ~89%
+of val examples, so `nt.model.rerank` scores the baseline's candidates
+with the model (scorer, generator likelihood, and a rank fusion of both
+with the baseline order):
+
+```bash
+python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset
+python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset \
+    --splits val --method fuse --write-sets out/rerank     # sets for test,hard
+```
+
 ## Next steps
 
 1. **Deterministic cost in Twee.** Done: `--deterministic-alloc` gives
