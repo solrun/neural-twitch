@@ -25,8 +25,11 @@ Splits (--group):
            subproblems with their source, cannot leak across splits.
   source   only a hindsight subproblem and its source stay together.
   problem  no grouping.
-Groups go to train/val/test by a hash of the group key, so the assignment is
-stable when data is added. --holdout-domain puts a whole domain in its own
+Whole groups go to train/val/test. By default (--assign stratified) each
+domain contributes about its share of problems to val and test, so the
+evaluation covers every domain rather than mostly the one with many small
+groups; groups larger than a third of their domain stay in train. Group
+order comes from a hash of the group key, so the assignment is stable. --holdout-domain puts a whole domain in its own
 split for the leave-domain-out experiment; problems in --hard go to 'hard'.
 
 Usage:
@@ -66,6 +69,41 @@ def source_of(problem: str) -> str:
 def unit_hash(key: str, seed: int) -> float:
     h = hashlib.sha1(f"{seed}:{key}".encode()).hexdigest()
     return int(h[:12], 16) / 16 ** 12
+
+
+def stratified_assignment(problems: list, group_key, domain_of, fr: list, seed: int,
+                          max_group_share: float) -> dict:
+    """Assign whole groups to train/val/test, domain by domain, so that each
+    domain contributes about its share to val and test. Within a domain,
+    groups are taken in a stable hash order; a group goes to val (then test)
+    while that split is short of its target and the group does not overshoot
+    it by much. Groups holding more than max_group_share of their domain
+    always go to train, so one large theory cannot become the whole test set."""
+    groups = collections.defaultdict(list)
+    for p in problems:
+        groups[group_key(p)].append(p)
+    by_domain = collections.defaultdict(dict)
+    for k, ps in groups.items():
+        dom = collections.Counter(domain_of(p) for p in ps).most_common(1)[0][0]
+        by_domain[dom][k] = ps
+    out = {}
+    for dom, gs in by_domain.items():
+        total = sum(len(ps) for ps in gs.values())
+        target = {"val": fr[1] * total, "test": fr[2] * total}
+        got = {"val": 0, "test": 0}
+        for k in sorted(gs, key=lambda k: unit_hash(k, seed)):
+            n = len(gs[k])
+            s = "train"
+            if n <= max_group_share * total:
+                for cand in ("val", "test"):
+                    if got[cand] < target[cand] and got[cand] + n <= 1.5 * target[cand] + 1:
+                        s = cand
+                        break
+            if s != "train":
+                got[s] += n
+            for p in gs[k]:
+                out[p] = s
+    return out
 
 
 def problem_paths(tptp_dir: str | None, manifests: list[str]) -> dict[str, dict]:
@@ -113,6 +151,12 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--group", choices=["axioms", "source", "problem"], default="axioms")
     ap.add_argument("--fractions", default="0.8,0.1,0.1", help="train,val,test")
+    ap.add_argument("--assign", choices=["stratified", "hash"], default="stratified",
+                    help="stratified: each domain contributes its share to val and test "
+                         "(default); hash: groups placed by hash alone")
+    ap.add_argument("--max-group-share", type=float, default=0.34,
+                    help="with --assign stratified, groups larger than this share of their "
+                         "domain always go to train")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--holdout-domain", default="", help="comma-separated domains")
     ap.add_argument("--hard", default=os.path.join(os.path.dirname(__file__), "..", "data",
@@ -170,15 +214,21 @@ def main() -> None:
             return meta[p]["axioms"]
         return source_of(p) if args.group == "source" else p
 
-    split = {}
+    split, pending = {}, []
     for p in graphs:
         if p in hard:
             split[p] = "hard"
         elif meta[p]["domain"] in held_domains:
             split[p] = "heldout_domain"
         else:
+            pending.append(p)
+    if args.assign == "hash":
+        for p in pending:
             u = unit_hash(group_key(p), args.seed)
             split[p] = "train" if u < fr[0] else "val" if u < fr[0] + fr[1] else "test"
+    else:
+        split.update(stratified_assignment(pending, group_key, lambda p: meta[p]["domain"],
+                                           fr, args.seed, args.max_group_share))
     # a source and its hindsight subproblems must agree even if one of them is
     # hard or in a held-out domain: the stricter split wins
     rank = {"hard": 0, "heldout_domain": 1, "test": 2, "val": 3, "train": 4}
