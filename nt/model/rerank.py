@@ -9,6 +9,9 @@ the baseline's top --pool candidates with the model, without sampling:
   gen        the generator's log-likelihood of the candidate
   fuse       reciprocal-rank fusion of baseline, scorer and gen orders
   bgen       reciprocal-rank fusion of baseline and gen orders (no scorer)
+  mix        bgen's first candidate, then the baseline order: keeps the
+             reranked top pick (better at k=1 in the Twee evaluation) and the
+             baseline's more varied tail (better at k=3, 5)
 
   python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset
 
@@ -30,7 +33,7 @@ from nt.model.data import (FUNC, MAX_SLOTS, VAR, Item, Target, collate, graph_fr
 from nt.model.net import Generator
 
 KS = (1, 5, 10)
-METHODS = ("baseline", "scorer", "gen", "fuse", "bgen")
+METHODS = ("baseline", "scorer", "gen", "fuse", "bgen", "mix")
 
 
 def encode(abstraction: str, g) -> list | None:
@@ -89,8 +92,10 @@ def rankings(cands: list, sc: list, ll: list, rrf_k: float = 10.0) -> dict:
                 fused[c] += 1.0 / (rrf_k + r)
         return [c for c, _ in fused.most_common()]
 
+    bgen = rrf(base, by_ll)
+    mix = bgen[:1] + [c for c in base if c not in bgen[:1]]
     return {"baseline": base, "scorer": by_sc, "gen": by_ll,
-            "fuse": rrf(base, by_sc, by_ll), "bgen": rrf(base, by_ll)}
+            "fuse": rrf(base, by_sc, by_ll), "bgen": bgen, "mix": mix}
 
 
 def main() -> None:
