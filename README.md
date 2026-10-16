@@ -27,6 +27,7 @@ published with the Twitch paper
 | `nt/graph.py` | Problem graphs for the encoder (equation/term/variable/symbol nodes, goal flag, argument positions) and abstractions as pointer-decoder actions, with masks. |
 | `nt/dataset.py` | Training dataset: labels joined with graphs, split by axiomatization, hard problems held out, optional text export for an LLM. |
 | `data/hard_problems.txt` | Twitch's hard problems (Twee alone fails in 1000 s), held out as the final test set. |
+| `nt/baseline.py` | Non-learned baselines (abstractions that helped by name, and by shape instantiated with the problem's symbols), same metrics and splits as the model; can write Twee-ready sets. |
 | `nt/model/` | The generator in plain PyTorch: graph encoder, pointer decoder, scorer (`net.py`), data loading (`data.py`), training with a `--smoke` self-test (`train.py`), and prediction of sets for Twee (`predict.py`). |
 | `slurm/arrhenius/` | Apptainer recipe (NVIDIA PyTorch, arm64) and GPU job script for Arrhenius. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
@@ -359,8 +360,17 @@ sbatch -A <project> --export=ALL,SIF=/nobackup/proj/disk/<project>/containers/py
     slurm/arrhenius/train.sbatch
 ```
 
+Compare with the non-learned baselines on the same splits and metrics. Note
+that hit@k has a high floor: about 28% of labelled abstractions help and
+common patterns recur, so even random labels give hit@5 around 0.2-0.3. The
+gap to the baselines is what counts:
+
+```bash
+python -m nt.baseline --data data/dataset --write-sets out/base
+```
+
 Then generate sets for the test (or hard) problems and evaluate them with
-Twee on Vera:
+Twee on Vera (the baseline sets in out/base_* the same way):
 
 ```bash
 python -m nt.model.predict --checkpoint runs/first/best.pt --data data/dataset \
