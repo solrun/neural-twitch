@@ -390,7 +390,7 @@ with the baseline order):
 ```bash
 python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset
 python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset \
-    --splits val --method fuse --write-sets out/rerank     # sets for test,hard
+    --pool 100 --method bgen --write-sets out/rerank     # sets for test,hard
 ```
 
 ## Next steps
