@@ -16,6 +16,9 @@ Sections:
      problems only one proves, and the CP ratio between the two sets
   3. portfolio over both flattening settings: problems proved by the set in
      either setting vs by plain Twee in either setting
+  4. complementarity: problems proved by each method in any configuration
+     (any k, either setting), the union, and which problems only one method
+     or only one configuration proves (names listed for --list-splits)
 """
 
 from __future__ import annotations
@@ -161,10 +164,72 @@ def portfolio(runs: dict, splits: dict) -> list[str]:
     return lines + [""]
 
 
-def report(runs: dict, splits: dict) -> str:
+def solved_sets(runs: dict, splits: dict):
+    """{split: {config or "plain": set(problems proved)}}; config = (method, k, flat)."""
+    out: dict = collections.defaultdict(lambda: collections.defaultdict(set))
+    for cfg, probs in runs.items():
+        for p, rr in probs.items():
+            sp = splits.get(p, "?")
+            out[sp].setdefault(cfg, set())
+            if proved(rr.get("set")):
+                out[sp][cfg].add(p)
+            if proved(rr.get("base")):
+                out[sp]["plain"].add(p)
+    return out
+
+
+def complementarity(runs: dict, splits: dict, list_splits=("hard",)) -> list[str]:
+    lines = ["## 4. Complementarity", "",
+             "Proved in any configuration of a method (any k, either flattening setting).", ""]
+    methods = sorted({m for m, _, _ in runs})
+    for split, by_cfg in sorted(solved_sets(runs, splits).items()):
+        plain = by_cfg.get("plain", set())
+        per_m = {m: set().union(*[v for c, v in by_cfg.items() if c != "plain" and c[0] == m])
+                 for m in methods}
+        union = set().union(*per_m.values()) if per_m else set()
+        lines += [f"### {split}", "",
+                  "| | proved | new (not plain Twee) | only this method |", "|---|---|---|---|"]
+        lines.append(f"| plain Twee (either setting) | {len(plain)} | – | – |")
+        for m in methods:
+            others = set().union(*[v for mm, v in per_m.items() if mm != m])
+            lines.append(f"| {m} | {len(per_m[m])} | {len(per_m[m] - plain)} "
+                         f"| {len(per_m[m] - others)} |")
+        lines.append(f"| union of all sets | {len(union)} | {len(union - plain)} | – |")
+        lines.append(f"| union of all sets and plain Twee | {len(union | plain)} | – | – |")
+        lines.append("")
+        # how many configurations prove each newly proved problem
+        cfgs = [c for c in by_cfg if c != "plain"]
+        count = collections.Counter(p for c in cfgs for p in by_cfg[c] - plain)
+        if count:
+            hist = collections.Counter(count.values())
+            lines.append("Newly proved problems by number of configurations (of "
+                         f"{len(cfgs)}) that prove them: "
+                         + ", ".join(f"{n}: {hist[n]}" for n in sorted(hist)) + ".")
+            lines.append("")
+        if split in list_splits:
+            for m in methods:
+                others = set().union(*[v for mm, v in per_m.items() if mm != m])
+                only = sorted(per_m[m] - others - plain)
+                if only:
+                    lines.append(f"- only {m}: " + ", ".join(
+                        f"{p} ({_cfg_list(by_cfg, p, m)})" for p in only))
+            lost = sorted(plain - union)
+            if lost:
+                lines.append("- plain Twee only: " + ", ".join(lost))
+            lines.append("")
+    return lines
+
+
+def _cfg_list(by_cfg, p, method) -> str:
+    return " ".join(f"k{k}{'f' if flat else 'n'}" for (m, k, flat) in
+                    sorted(c for c in by_cfg if c != "plain" and c[0] == method)
+                    if p in by_cfg[m, k, flat])
+
+
+def report(runs: dict, splits: dict, list_splits=("hard",)) -> str:
     return "\n".join(["# Twee evaluation of generated sets", ""]
                      + per_config(runs, splits) + head_to_head(runs, splits)
-                     + portfolio(runs, splits))
+                     + portfolio(runs, splits) + complementarity(runs, splits, list_splits))
 
 
 def main() -> None:
@@ -172,13 +237,16 @@ def main() -> None:
     ap.add_argument("files", nargs="+", help="out/eval/*.jsonl (merged or shard files)")
     ap.add_argument("--data", required=True, help="output directory of nt.dataset (for splits)")
     ap.add_argument("--out", help="also write the report to this file")
+    ap.add_argument("--list-splits", default="hard",
+                    help="splits whose problems section 4 lists by name")
     args = ap.parse_args()
     files = [f for pat in args.files for f in (glob.glob(pat) or [pat])]
     # if a merged file and its shards are both given, use only the shards
     merged = {f for f in files if re.search(r"_\d+\.jsonl$", f) is None}
     shards = {re.sub(r"_\d+\.jsonl$", ".jsonl", f) for f in files if f not in merged}
     files = [f for f in files if f not in (merged & shards)]
-    text = report(load_runs(files), load_splits(args.data))
+    text = report(load_runs(files), load_splits(args.data),
+                  tuple(x for x in args.list_splits.split(",") if x))
     print(text)
     if args.out:
         with open(args.out, "w") as fh:

@@ -393,6 +393,26 @@ python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset \
     --pool 100 --method bgen --write-sets out/rerank     # sets for test,hard
 ```
 
+Evaluate sets with Twee on Vera (one array task per file and shard), then
+summarise; the report's section 4 lists which hard problems only one method
+proves:
+
+```bash
+F=(out/rerank_k3_flat.jsonl out/rerank_k3_noflat.jsonl \
+   out/base_combined_k3_flat.jsonl out/base_combined_k3_noflat.jsonl)
+SHARDS=4
+sbatch -A <project> --array=0-$(( ${#F[@]} * SHARDS - 1 )) \
+    --export=ALL,SHARDS=$SHARDS,WALL=3600 slurm/eval_sets.sbatch "${F[@]}"
+python -m nt.eval_report 'out/eval/*.jsonl' --data data/dataset --out eval_report.md
+```
+
+First evaluation (k = 1, 3, 5): plain Twee proves 4 of the 96 hard problems
+in either flattening setting, generated sets 17-24. At k=1 the reranked sets
+beat the baseline's (13 vs 2 problems only one proves); at k=3 and 5 the
+baseline's are as good or better, presumably because likelihood reranking
+makes the list less varied. `--method mix` takes the reranked first
+candidate followed by the baseline order.
+
 ## Next steps
 
 1. **Deterministic cost in Twee.** Done: `--deterministic-alloc` gives
