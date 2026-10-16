@@ -65,11 +65,11 @@ def best_sets(labels_path: str) -> dict[str, list[str]]:
 
 
 def jobs_for(problem: str, path: str, abstractions: list[str],
-             flatten_modes=(True, False), weights=tuple(WEIGHTS)):
+             flatten_modes=(True, False), weights=tuple(WEIGHTS), singles: bool = True):
     for s in settings(flatten_modes, weights):
         yield problem, path, s, "base", []
         yield problem, path, s, "set", abstractions
-        if len(abstractions) > 1:
+        if singles and len(abstractions) > 1:
             for a in abstractions:
                 yield problem, path, s, "single", [a]
 
@@ -129,6 +129,9 @@ def main() -> None:
     ap.add_argument("--flatten", choices=FLATTEN_MODES, default="both",
                     help="goal flattening: run with it on and off (default), "
                          "or only one of them")
+    ap.add_argument("--no-singles", action="store_true",
+                    help="run only the baseline and the whole set, not each member alone "
+                         "(for evaluating generated sets)")
     ap.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE,
                     help="housekeeping schedule: cps:N (--deterministic), alloc:N "
                          "(--deterministic-alloc) or none (CPU time, not reproducible); "
@@ -158,7 +161,8 @@ def main() -> None:
     if bad or not weights:
         ap.error(f"unknown weight settings {bad}; choose from {', '.join(WEIGHTS)}")
     jobs = [j for p in problems
-            for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten], weights)]
+            for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten], weights,
+                             singles=not args.no_singles)]
     if args.calibration:
         ok = proved_baselines(args.calibration, args.max_cps, args.schedule)
         n = len(jobs)
