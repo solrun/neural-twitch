@@ -8,6 +8,7 @@ the baseline's top --pool candidates with the model, without sampling:
   scorer     the model's scorer logit
   gen        the generator's log-likelihood of the candidate
   fuse       reciprocal-rank fusion of baseline, scorer and gen orders
+  bgen       reciprocal-rank fusion of baseline and gen orders (no scorer)
 
   python -m nt.model.rerank --checkpoint runs/first/best.pt --data data/dataset
 
@@ -29,7 +30,7 @@ from nt.model.data import (FUNC, MAX_SLOTS, VAR, Item, Target, collate, graph_fr
 from nt.model.net import Generator
 
 KS = (1, 5, 10)
-METHODS = ("baseline", "scorer", "gen", "fuse")
+METHODS = ("baseline", "scorer", "gen", "fuse", "bgen")
 
 
 def encode(abstraction: str, g) -> list | None:
@@ -81,12 +82,15 @@ def rankings(cands: list, sc: list, ll: list, rrf_k: float = 10.0) -> dict:
     base = [cands[i] for i in keep]
     by_sc = [cands[i] for i in sorted(keep, key=lambda i: -sc[i])]
     by_ll = [cands[i] for i in sorted(keep, key=lambda i: -ll[i])]
-    fused = collections.Counter()
-    for order in (base, by_sc, by_ll):
-        for r, c in enumerate(order):
-            fused[c] += 1.0 / (rrf_k + r)
+    def rrf(*orders):
+        fused = collections.Counter()
+        for order in orders:
+            for r, c in enumerate(order):
+                fused[c] += 1.0 / (rrf_k + r)
+        return [c for c, _ in fused.most_common()]
+
     return {"baseline": base, "scorer": by_sc, "gen": by_ll,
-            "fuse": [c for c, _ in fused.most_common()]}
+            "fuse": rrf(base, by_sc, by_ll), "bgen": rrf(base, by_ll)}
 
 
 def main() -> None:
@@ -96,7 +100,7 @@ def main() -> None:
     ap.add_argument("--weight", default="f0.5")
     ap.add_argument("--splits", default="val,test")
     ap.add_argument("--pool", type=int, default=50, help="baseline candidates to rerank")
-    ap.add_argument("--method", default="fuse", choices=METHODS, help="ranking for --write-sets")
+    ap.add_argument("--method", default="bgen", choices=METHODS, help="ranking for --write-sets")
     ap.add_argument("--write-sets", metavar="PREFIX")
     ap.add_argument("--top", default="1,3,5")
     ap.add_argument("--set-splits", default="test,hard")
