@@ -18,9 +18,17 @@ Usage:
     # abstraction sets from nt.expand instead of the Twitch runs:
     python -m nt.single_runs --sets out/expand/sets.jsonl out/single_expand.jsonl ...
 
+    # each member of generated sets alone, without the baseline and set runs
+    # (those are already in the set evaluation; rows get "rank" = position
+    # in the set, so the top-K singles of a k=5 file cover every K <= 5):
+    python -m nt.single_runs --sets out/rerank_k5_flat.jsonl out/eval_singles/rerank_k5_flat.jsonl \
+        --singles-only --flatten on ...
+
 Output rows (one per run):
     {"problem", "setting", "kind": "base"|"set"|"single",
      "abstractions": [...], "status", "cps", ..., "ratio"}
+(single rows from --singles-only also have "rank", the 0-based position of
+the abstraction in its set)
 ratio = cps / baseline cps under the same setting; runs that hit the budget
 get ratio = max_cps / baseline cps (a lower bound on the true ratio).
 """
@@ -65,8 +73,13 @@ def best_sets(labels_path: str) -> dict[str, list[str]]:
 
 
 def jobs_for(problem: str, path: str, abstractions: list[str],
-             flatten_modes=(True, False), weights=tuple(WEIGHTS), singles: bool = True):
+             flatten_modes=(True, False), weights=tuple(WEIGHTS), singles: bool = True,
+             singles_only: bool = False):
     for s in settings(flatten_modes, weights):
+        if singles_only:
+            for i, a in enumerate(abstractions):
+                yield problem, path, s, "single", [a], i
+            continue
         yield problem, path, s, "base", []
         yield problem, path, s, "set", abstractions
         if singles and len(abstractions) > 1:
@@ -97,11 +110,14 @@ def proved_baselines(paths: list[str], max_cps: int, schedule: str) -> set:
 
 
 def _run(job, max_cps, wall_timeout, schedule):
-    problem, path, setting, kind, abstractions = job
+    problem, path, setting, kind, abstractions = job[:5]
     res = twee.run(path, abstractions, setting, max_cps, wall_timeout,
                    schedule=schedule)
-    return {"problem": problem, "setting": setting.key(), "kind": kind,
-            "abstractions": abstractions, "schedule": schedule, **res.to_dict()}
+    row = {"problem": problem, "setting": setting.key(), "kind": kind,
+           "abstractions": abstractions, "schedule": schedule, **res.to_dict()}
+    if len(job) > 5:
+        row["rank"] = job[5]
+    return row
 
 
 def main() -> None:
@@ -132,11 +148,16 @@ def main() -> None:
     ap.add_argument("--no-singles", action="store_true",
                     help="run only the baseline and the whole set, not each member alone "
                          "(for evaluating generated sets)")
+    ap.add_argument("--singles-only", action="store_true",
+                    help="run only each member of the set alone, with its rank in the set "
+                         "(no baseline or set runs; for portfolios of singles in nt.eval_report)")
     ap.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE,
                     help="housekeeping schedule: cps:N (--deterministic), alloc:N "
                          "(--deterministic-alloc) or none (CPU time, not reproducible); "
                          f"default {twee.DEFAULT_SCHEDULE}")
     args = ap.parse_args()
+    if args.no_singles and args.singles_only:
+        ap.error("--no-singles and --singles-only exclude each other")
 
     if args.sets:
         if args.labels or args.tptp_dir:
@@ -162,7 +183,7 @@ def main() -> None:
         ap.error(f"unknown weight settings {bad}; choose from {', '.join(WEIGHTS)}")
     jobs = [j for p in problems
             for j in jobs_for(p, paths[p], sets[p], FLATTEN_MODES[args.flatten], weights,
-                             singles=not args.no_singles)]
+                             singles=not args.no_singles, singles_only=args.singles_only)]
     if args.calibration:
         ok = proved_baselines(args.calibration, args.max_cps, args.schedule)
         n = len(jobs)
