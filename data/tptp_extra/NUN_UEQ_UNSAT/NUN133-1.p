@@ -1,5 +1,8 @@
 %------------------------------------------------------------------------------
 % File     : NUN133-1 : TPTP v9.2.1. Released v8.1.0.
+% Note     : Modified for neural-twitch: the quoted symbol '+' is renamed plus,
+%            because Twee prints '+' infix and Twitch's term parser
+%            only reads prefix terms.
 % Domain   : Number Theory
 % Problem  : Nicomachus' theorem - proof by induction, step case
 % Version  : Especial.
@@ -23,10 +26,10 @@
 % Comments : 
 %------------------------------------------------------------------------------
 cnf(plus_comm,axiom,
-    '+'(X,Y) = '+'(Y,X) ).
+    plus(X,Y) = plus(Y,X) ).
 
 cnf(plus_assoc,axiom,
-    '+'(X,'+'(Y,Z)) = '+'('+'(X,Y),Z) ).
+    plus(X,plus(Y,Z)) = plus(plus(X,Y),Z) ).
 
 cnf(times_comm,axiom,
     times(X,Y) = times(Y,X) ).
@@ -35,7 +38,7 @@ cnf(times_assoc,axiom,
     times(X,times(Y,Z)) = times(times(X,Y),Z) ).
 
 cnf(plus_zero,axiom,
-    '+'(X,zero) = X ).
+    plus(X,zero) = X ).
 
 cnf(times_zero,axiom,
     times(X,zero) = zero ).
@@ -44,31 +47,31 @@ cnf(times_one,axiom,
     times(X,one) = X ).
 
 cnf(distr,axiom,
-    times(X,'+'(Y,Z)) = '+'(times(X,Y),times(X,Z)) ).
+    times(X,plus(Y,Z)) = plus(times(X,Y),times(X,Z)) ).
 
 cnf(distr_001,axiom,
-    times('+'(X,Y),Z) = '+'(times(X,Z),times(Y,Z)) ).
+    times(plus(X,Y),Z) = plus(times(X,Z),times(Y,Z)) ).
 
 cnf(plus_s,axiom,
-    '+'(s(X),Y) = s('+'(X,Y)) ).
+    plus(s(X),Y) = s(plus(X,Y)) ).
 
 cnf(times_s,axiom,
-    times(s(X),Y) = '+'(Y,times(X,Y)) ).
+    times(s(X),Y) = plus(Y,times(X,Y)) ).
 
 cnf(sum_zero,axiom,
     sum(zero) = zero ).
 
 cnf(sum_s,axiom,
-    sum(s(N)) = '+'(s(N),sum(N)) ).
+    sum(s(N)) = plus(s(N),sum(N)) ).
 
 cnf(cubes_zero,axiom,
     cubes(zero) = zero ).
 
 cnf(cubes_s,axiom,
-    cubes(s(N)) = '+'(times(s(N),times(s(N),s(N))),cubes(N)) ).
+    cubes(s(N)) = plus(times(s(N),times(s(N),s(N))),cubes(N)) ).
 
 cnf(plus_sum,axiom,
-    '+'(sum(N),sum(N)) = times(N,s(N)) ).
+    plus(sum(N),sum(N)) = times(N,s(N)) ).
 
 cnf(induction_hypothesis,axiom,
     times(sum(a),sum(a)) = cubes(a) ).

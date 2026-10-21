@@ -1,0 +1,32 @@
+# New TPTP UEQ problems (data/tptp_extra) that Twee alone fails within 1000 s
+# under both flattening settings (extra_base run, 2026-10-21). Same criterion
+# as data/hard_problems.txt; kept separate so the original 96 stay comparable.
+ANA004-10
+ANA005-10
+ANA034-10
+HEN010-10
+KLE096-10
+KLE110-10
+KLE152-10
+KLE157-10
+KLE161-10
+MSC015-10.027
+MSC015-10.030
+MVA004-1
+MVA005-1
+NUM284-10.014
+PLA007-10
+PLA008-10
+PLA014-10
+PLA015-10
+PLA017-10
+PLA023-10
+PLA031-10.006
+PUZ056-10.020
+PUZ056-10.030
+SWV234-10
+SYN615-10
+SYN708-10
+SYN986-10.005
+SYN986-10.006
+TOP052-1
