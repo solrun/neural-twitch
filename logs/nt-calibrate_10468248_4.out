@@ -1,0 +1,29 @@
+This job can be monitored from: https://job.c3se.chalmers.se/vera/10468253
+38 problems x 2 flattening settings x 2 runs, wall cap 1000.0s
+50/152 runs done
+100/152 runs done
+150/152 runs done
+
+=== goal flattening on ===
+
+Determinism: 30 problems proved twice, 0 with differing CP counts.
+
+Baselines proved within the wall cap: 30 of 38 (8 timed out or failed).
+CPs needed: median 37,804, 90th pct 198,066, 95th pct 393,294, max 3,685,612.
+Wall time per million CPs: median 206.5s.
+  --max-cps 786,588  (2x the 95th percentile): 29 of 38 baselines fit
+  --max-cps 1,966,469  (5x the 95th percentile): 29 of 38 baselines fit
+  --max-cps 3,932,938  (10x the 95th percentile): 30 of 38 baselines fit
+
+=== goal flattening off ===
+
+Determinism: 32 problems proved twice, 0 with differing CP counts.
+
+Baselines proved within the wall cap: 32 of 38 (6 timed out or failed).
+CPs needed: median 14,177, 90th pct 127,449, 95th pct 868,055, max 2,261,009.
+Wall time per million CPs: median 288.9s.
+  --max-cps 1,736,110  (2x the 95th percentile): 31 of 38 baselines fit
+  --max-cps 4,340,276  (5x the 95th percentile): 32 of 38 baselines fit
+  --max-cps 8,680,551  (10x the 95th percentile): 32 of 38 baselines fit
+
+Use one --max-cps for both settings: the larger of the two suggestions above.
