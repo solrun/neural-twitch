@@ -1,5 +1,8 @@
 %------------------------------------------------------------------------------
 % File     : ANA133-1 : TPTP v9.2.1. Released v8.1.0.
+% Note     : Modified for neural-twitch: the quoted symbol '+' is renamed plus,
+%            because Twee prints '+' infix and Twitch's term parser
+%            only reads prefix terms.
 % Domain   : Analysis
 % Problem  : Find the integral of x cos x.
 % Version  : Especial
@@ -23,10 +26,10 @@
 % Comments : 
 %------------------------------------------------------------------------------
 cnf(commutativity_of_plus,axiom,
-    '+'(X,Y) = '+'(Y,X) ).
+    plus(X,Y) = plus(Y,X) ).
 
 cnf(associtivity_of_plus,axiom,
-    '+'(X,'+'(Y,Z)) = '+'('+'(X,Y),Z) ).
+    plus(X,plus(Y,Z)) = plus(plus(X,Y),Z) ).
 
 cnf(commutativity_of_times,axiom,
     times(X,Y) = times(Y,X) ).
@@ -35,7 +38,7 @@ cnf(associativity_of_times,axiom,
     times(X,times(Y,Z)) = times(times(X,Y),Z) ).
 
 cnf(plus_zero,axiom,
-    '+'(zero,X) = X ).
+    plus(zero,X) = X ).
 
 cnf(times_zero,axiom,
     times(zero,X) = zero ).
@@ -44,10 +47,10 @@ cnf(times_one,axiom,
     times(one,X) = X ).
 
 cnf(distributivity,axiom,
-    times(X,'+'(Y,Z)) = '+'(times(X,Y),times(X,Z)) ).
+    times(X,plus(Y,Z)) = plus(times(X,Y),times(X,Z)) ).
 
 cnf(minus,axiom,
-    '+'(X,minus(X)) = zero ).
+    plus(X,minus(X)) = zero ).
 
 cnf(derivative_of_zero,axiom,
     d(zero) = zero ).
@@ -59,10 +62,10 @@ cnf(derivative_of_x,axiom,
     d(x) = one ).
 
 cnf(derivative_of_plus,axiom,
-    d('+'(T,U)) = '+'(d(T),d(U)) ).
+    d(plus(T,U)) = plus(d(T),d(U)) ).
 
 cnf(derivative_of_times,axiom,
-    d(times(T,U)) = '+'(times(T,d(U)),times(U,d(T))) ).
+    d(times(T,U)) = plus(times(T,d(U)),times(U,d(T))) ).
 
 cnf(derivative_of_sin,axiom,
     d(sin(T)) = times(cos(T),d(T)) ).
