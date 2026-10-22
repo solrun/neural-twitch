@@ -134,3 +134,17 @@ partial one from a job that was cut off.
 * The scripts write Twee's input files to `$TMPDIR`, which Slurm points at
   the node's local disk, so nothing touches shared storage per run.
 * `--workers` defaults to the CPUs Slurm allocated (not the whole node).
+
+## Training on a CPU node
+
+The generator is small enough to train on CPUs. `train_cpu.sbatch` uses C3SE's
+PyTorch module (`PyTorch/2.1.2-foss-2023b`, Python 3.11) instead of the venv, so
+don't source `vera.env` for it:
+
+```bash
+mkdir -p logs runs
+sbatch -A <project> --export=ALL,NAME=extra,DATA=data/dataset_extra slurm/train_cpu.sbatch
+```
+
+For a quick check of the module, in an interactive job:
+`module purge; module load PyTorch/2.1.2-foss-2023b; python -m nt.model.train --smoke`.
