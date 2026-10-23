@@ -1,8 +1,8 @@
-"""Which abstractions are behind the problems one method alone proves?
+"""Which abstractions are behind the problems a method proves?
 
   python -m nt.attribute out/eval/*.jsonl --method pred --sets-prefix out/pred \\
       --splits-data data/dataset --train-data data/dataset_extra \\
-      --alloc-budget 2e12 [--splits hard,?] [--out attribution_pred.md]
+      --alloc-budget 2e12 [--all] [--splits hard,?] [--out attribution_pred.md]
 
 Inputs: the nt.single_runs outputs of slurm/eval_sets.sbatch for every method
 (merged or shard files, named <method>_k<K>_<flat|noflat>[_<shard>].jsonl, as
@@ -58,40 +58,72 @@ def proved_by(runs: dict) -> dict:
     return out
 
 
+TAGS = ("seen", "new string", "new shape")
+
+
+def cfg_name(k: int, flat: bool) -> str:
+    return f"k{k}{'f' if flat else 'n'}"
+
+
 def attribute(runs: dict, splits: dict, method: str, sets: dict, seen: set[str],
-              keep_splits: set[str]) -> list[str]:
+              keep_splits: set[str], all_problems: bool = False) -> list[str]:
+    """Report the proving sets of `method`'s problems in keep_splits: only the
+    ones no other method proves, or with all_problems every one it proves.
+
+    A problem *needs a new shape* if every set of `method` that proves it
+    contains a new-shape abstraction; if some proving set has none, known
+    shapes suffice. A k=1 proof attributes the proof to one abstraction."""
     by = proved_by(runs)
     if method not in by:
         return [f"No proofs by {method!r}; methods with proofs: {', '.join(sorted(by))}"]
-    others = set().union(*(set(ps) for m, ps in by.items() if m != method))
+    other_methods = sorted(m for m in by if m != method)
     seen_shapes = {shape(a) for a in seen}
-    only = sorted(p for p in by[method] if p not in others and splits.get(p, "?") in keep_splits)
-    lines = [f"# Problems only {method} proves", "",
-             f"Splits {', '.join(sorted(keep_splits))}; other methods: "
-             f"{', '.join(sorted(m for m in by if m != method)) or 'none'}.", ""]
-    n_with_new_shape = 0
-    for p in only:
+
+    def tag(a: str) -> str:
+        if shape(a) not in seen_shapes:
+            return "new shape"
+        return "new string" if a not in seen else "seen"
+
+    probs = sorted(p for p in by[method] if splits.get(p, "?") in keep_splits
+                   and (all_problems or not any(p in by[m] for m in other_methods)))
+    k1_tags: collections.Counter = collections.Counter()
+    needs_new, body = [], []
+    for p in probs:
         cfgs = sorted(by[method][p])
-        cfg_txt = " ".join(f"k{k}{'f' if f else 'n'}" for k, f in cfgs)
-        lines += [f"## {p} ({splits.get(p, '?')}): {cfg_txt}", ""]
-        any_new_shape = False
+        also = [m for m in other_methods if p in by[m]]
+        body += [f"## {p} ({splits.get(p, '?')}): {' '.join(cfg_name(*c) for c in cfgs)}",
+                 "", f"Also proved by: {', '.join(also) or 'no other method'}.", ""]
+        known_suffices, any_set = False, False
         for k, f in cfgs:
             abstr = sets.get((k, f), {}).get(p)
             if abstr is None:
-                lines.append(f"- k{k}{'f' if f else 'n'}: set not found")
+                body.append(f"- {cfg_name(k, f)}: set not found")
                 continue
-            parts = []
-            for a in abstr:
-                ns = shape(a) not in seen_shapes
-                any_new_shape |= ns
-                tag = "new shape" if ns else ("new string" if a not in seen else "seen")
-                parts.append(f"`{a}` ({tag})")
-            lines.append(f"- k{k}{'f' if f else 'n'}: " + ", ".join(parts))
-        n_with_new_shape += any_new_shape
-        lines.append("")
-    lines.insert(4, f"{len(only)} problems; {n_with_new_shape} have a proving set with a "
-                    f"new-shape abstraction.\n")
-    return lines
+            any_set = True
+            tags = [tag(a) for a in abstr]
+            known_suffices |= "new shape" not in tags
+            if k == 1:
+                k1_tags[tags[0]] += 1
+            body.append(f"- {cfg_name(k, f)}: "
+                        + ", ".join(f"`{a}` ({t})" for a, t in zip(abstr, tags)))
+        if any_set and not known_suffices:
+            needs_new.append((p, also))
+        body.append("")
+
+    scope = "every problem" if all_problems else "problems only"
+    lines = [f"# Attribution: {scope} {method} proves", "",
+             f"Splits {', '.join(sorted(keep_splits))}; other methods: "
+             f"{', '.join(other_methods) or 'none'}.", "",
+             f"- {len(probs)} problems.",
+             f"- k=1 proofs (one abstraction each, counted per proving configuration): "
+             + ", ".join(f"{t} {k1_tags[t]}" for t in TAGS) + ".",
+             f"- Every proving set has a new-shape abstraction (candidates for a needed new "
+             f"pattern): {len(needs_new)}"
+             + (": " + ", ".join(f"{p}" + (f" (also {'/'.join(a)})" if a else "")
+                                 for p, a in needs_new) if needs_new else "") + ".",
+             f"- Known shapes suffice (some proving set has no new shape): "
+             f"{len(probs) - len(needs_new)}.", ""]
+    return lines + body
 
 
 def main() -> None:
@@ -102,6 +134,8 @@ def main() -> None:
     ap.add_argument("--splits-data", required=True, help="nt.dataset output for the splits")
     ap.add_argument("--train-data", required=True, help="nt.dataset output the model trained on")
     ap.add_argument("--splits", default="hard,?")
+    ap.add_argument("--all", action="store_true",
+                    help="every problem --method proves, not only those no other method proves")
     ap.add_argument("--alloc-budget", type=float, metavar="BYTES")
     ap.add_argument("--out")
     args = ap.parse_args()
@@ -110,7 +144,8 @@ def main() -> None:
     configs = {(k, f) for m, k, f in runs if m == args.method}
     text = "\n".join(attribute(runs, er.load_splits(args.splits_data), args.method,
                                load_sets(args.sets_prefix, configs),
-                               train_abstractions(args.train_data), set(args.splits.split(","))))
+                               train_abstractions(args.train_data), set(args.splits.split(",")),
+                               all_problems=args.all))
     print(text)
     if args.out:
         with open(args.out, "w") as f:
