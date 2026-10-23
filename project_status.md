@@ -30,12 +30,12 @@ Goal: learn to generate Twitch-style abstractions (term patterns given to Twee a
 
 Results are hit@k: the share of examples where a known helpful abstraction is in the top k.
 
-| | val hit@1 | val hit@5 | val hit@10 | test hit@1 | test hit@5 |
-|---|---|---|---|---|---|
-| baseline (combined) | 0.317 | 0.525 | 0.574 | 0.176 | 0.676 |
-| model, sampling (best epoch) | 0.287 | 0.525 | – | – | – |
-| baseline top 50, reranked by generator likelihood | 0.287 | 0.594 | 0.743 | 0.389 | 0.630 |
-| reranked, fusion of baseline + scorer + generator | 0.337 | 0.604 | 0.663 | 0.269 | 0.667 |
+|                                                   | val hit@1 | val hit@5 | val hit@10 | test hit@1 | test hit@5 |
+|---------------------------------------------------|-----------|-----------|------------|------------|------------|
+| baseline (combined)                               | 0.317     | 0.525     | 0.574      | 0.176      | 0.676      |
+| model, sampling (best epoch)                      | 0.287     | 0.525     | –          | –          | –          |
+| baseline top 50, reranked by generator likelihood | 0.287     | 0.594     | 0.743      | 0.389      | 0.630      |
+| reranked, fusion of baseline + scorer + generator | 0.337     | 0.604     | 0.663      | 0.269      | 0.667      |
 
 **Reading:**
 - Names carry over within theories, and the baseline's candidate pool usually contains a helpful abstraction (89% of val in its top 200). Ranking is the hard part.
@@ -53,21 +53,21 @@ Results are hit@k: the share of examples where a known helpful abstraction is in
 
 **Hard problems: generated hints give new proofs.** Plain Twee proves 3 of 96 per setting, 4 in either setting. With the sets:
 
-| portfolio (either flattening setting) | k=1 | k=3 | k=5 |
-|---|---|---|---|
-| baseline sets: hard proved | 17 | 22 | 23 |
-| rerank sets: hard proved | **24** | 22 | 18 |
+| portfolio (either flattening setting) | k=1    | k=3 | k=5 |
+|---------------------------------------|--------|-----|-----|
+| baseline sets: hard proved            | 17     | 22  | 23  |
+| rerank sets: hard proved              | **24** | 22  | 18  |
 
 In a single setting, the sets prove 8–19 hard problems.
 
 **Complementarity on hard** (any k, either setting; 6 configurations per method, so both get the same number of attempts):
 
-| | hard proved | new (not plain Twee) |
-|---|---|---|
-| plain Twee | 4 | – |
-| baseline sets | 26 | 24 |
-| rerank sets | 31 | 29 |
-| union of all sets + plain Twee | 33 | – |
+|                                | hard proved | new (not plain Twee) |
+|--------------------------------|-------------|----------------------|
+| plain Twee                     | 4           | –                    |
+| baseline sets                  | 26          | 24                   |
+| rerank sets                    | 31          | 29                   |
+| union of all sets + plain Twee | 33          | –                    |
 
 - Every new proof the baseline gets, rerank also gets in some configuration. Five hard problems are proved only by rerank: COL002-10, GRP693-1, LAT400-1, LAT400-3, LCL304-10. One (GRP689-1) is proved only by plain Twee.
 - The new proofs vary in how robust they are: 5 of the 29 come from just 1–2 of the 12 configurations, while 4 come from 11 or 12.
