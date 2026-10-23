@@ -5,7 +5,8 @@ Goal: learn to generate Twitch-style abstractions (term patterns given to Twee a
 **New since 2026-10-21:**
 - The dataset now includes the TPTP unit-equality problems Twitch did not use: 124 more labelled problems, including two new theories (MVA, KLE), and 29 more hard problems (section 3).
 - A model retrained on it gives the same hard-problem results within noise (24 of 96 over all configurations) and the first clear speedups on test (median 0.61 at k=1, flattening off) (section 5).
-- `nt.model.predict` now ranks samples by frequency and marks novel abstractions. Sampled abstractions are mostly known patterns with new symbols: only 3–12% have new shapes. Their Twee evaluation is running (section 4).
+- **Sampling is now the best method on hard problems.** The new model's own samples (`nt.model.predict`, ranked by frequency) prove 16 / 20 / 21 of the 96 at k = 1 / 3 / 5, and 26 over all configurations, against 14 / 19 / 18 and 24 for reranking with the same model (section 5c).
+- But the gain is pattern transfer, not invention: only 3–12% of sampled abstractions have new shapes, and the two problems only sampling proves need none (section 5c).
 
 ## 1. Infrastructure (done)
 
@@ -92,7 +93,7 @@ First results (`data/dataset`). hit@k is the share of examples where a known hel
 | k=5 | 37% | 12% |
 
 - So the generator mostly writes known patterns with the problem's own symbols, close to what the baseline's shape method does. Genuinely new shapes are 3–12%, and that count includes trivial variants.
-- The Twee evaluation of these sets (`pred`) is running.
+- Offline, sampling only tied the baseline, but hit@k counts only abstractions already labelled helpful. In Twee, sampled sets do best (section 5c).
 
 ## 5. Twee evaluation of generated sets
 
@@ -169,16 +170,44 @@ First results (`data/dataset`). hit@k is the share of examples where a known hel
 
 **New problems (split `?`: 6 KLE test, 29 new hard).** Plain Twee proves 6 of the 35 (the KLE test problems); the sets prove 5 of the 29 new hard problems.
 
-**Caveat:** the old-model numbers come from the 2026-10-21 report, not a per-problem head-to-head in one report. The old methods' outputs are stored as shard files, which the glob for this report skipped; rerunning `nt.eval_report` on `out/eval/*.jsonl` (it merges shards itself) gives the head-to-head.
+**Head to head, old vs new model** (`eval_report_all.md`): on hard, problems only one of the two proves, summed over the six configurations, are 11 each. So on hard the two rerankers are even; the new model's gain is speed on test.
+
+**New hard problems proved** (any method): ANA034-10 and MVA004-1 by the new reranker only, plus three proved by both reranked and sampled sets.
+
+### 5c. Sampled sets, new model (2026-10-23)
+
+`pred`: `nt.model.predict` with the new model, 128 samples per problem and setting, the k most often sampled abstractions as the set. Same k, settings and 2.0e12 budget. One report with every method: `eval_report_all.md` (`nt.eval_report out/eval/*.jsonl --data data/dataset --alloc-budget 2e12 --list-splits "hard,?"`).
+
+**Hard (original 96): sampling leads at every k.**
+
+| portfolio (either flattening setting) | k=1 | k=3 | k=5 | any configuration |
+|---|---|---|---|---|
+| baseline | 12 | 13 | 18 | 19 |
+| rerank, old model | 15 | 19 | 16 | 23 |
+| rerank, new model | 14 | 19 | 18 | 24 |
+| **sampled, new model** | **16** | **20** | **21** | **26** |
+| union of all methods | | | | 27 |
+
+- Same model, sampled vs reranked: problems only one proves, summed over configurations, 24 vs 12 (k=1: 3 vs 1, k=3: 11 vs 6, k=5: 10 vs 5); two-sided sign test p ≈ 0.07, and configurations overlap, so a strong hint rather than significant.
+- The biggest gap is k=5 with flattening off: 15 hard problems sampled, against 9 (new rerank), 6 (old rerank) and 10 (baseline). This fits the diversity hypothesis: reranked lists bunch similar candidates, samples are more varied.
+- Only sampled sets prove ROB032-2 (k3 both settings) and ROB034-1 (k3 flattening on, k5 off).
+- Robustness: 4 hard problems are proved in 27–28 of the 28 configurations of all methods.
+
+**Test (original 97):** like the other methods. Median ratio with flattening off 0.64 / 0.94 / 0.97 at k = 1 / 3 / 5; 4–5 proofs lost in the portfolio over both settings.
+
+**New problems (`?`):** sampled sets prove 3 of the 29 new hard problems, the new reranker 5.
+
+**Attribution** (`nt.attribute`, `attribution_pred.md`). For the two problems only sampling proves, the proving sets are the same three Robbins abstractions: `negate(add(X0, X1))` (labelled in training), `add(X0, negate(X1))` and `add(X0, negate(add(X1, X2)))` (new as written, known shapes). Neither needs a new shape. So the generator's advantage is transferring known patterns to the problem's symbols, and choosing more varied sets, not inventing patterns.
 
 ## 6. Open questions and next steps
 
-- **Sampled sets (`pred`):** finish the Twee evaluation, then attribute the hard problems only `pred` proves: is a new-shape abstraction doing the work, or is it transfer of a known pattern?
-- **One report with all methods** (old and new model, with shards included) for a per-problem head-to-head, and the names of the 5 new hard problems proved (`--list-splits "hard,?"`).
+- **Attribute every sampled proof,** not only the two unique ones: over all 26 hard problems sampling proves, especially the k=1 proofs (one abstraction each), does any proof need a new shape? Needs an `--all` option in `nt.attribute`.
+- **New patterns, not just new symbols:** if no proof needs a new shape, try a decoder built for diversity, e.g. a conditional VAE as in the neural conjecturing work, or sampling at a higher temperature.
+- **Sampling as the default method** for later evaluations (ETP, leave-domain-out), with rerank as the comparison.
 - **Lost test proofs:** the new model loses more at k=1 with flattening on (9 vs 3). Look at which problems, and whether a portfolio with plain Twee covers them all.
 - **Portfolio of singles instead of sets:** run each of rerank's top k candidates as a separate single-abstraction run, against a k-set at the same total cost (tooling done: `eval_sets.sbatch MODE=singles`, `nt.eval_report --singles`).
 - **MVA weight in training:** one axiom group is about 10% of train; try per-group down-weighting, or a run without MVA.
-- **Diversity:** reranking with a diversity penalty (e.g. no two candidates with the same shape) may still help at k=5. A more diverse decoder, as in the neural conjecturing work (e.g. a conditional VAE), is another option if sampled shapes stay this repetitive.
+- **Diversity in reranking:** a diversity penalty (e.g. no two candidates with the same shape) might close rerank's gap to sampling at k=5.
 - **Overlap of hard with training theories:** check how many hard problems share an axiomatization with training problems, i.e. whether the new proofs come from within-theory transfer.
 - **Better generalisation:** smaller model or stronger name dropout, more data (more hindsight subproblems), or train the scorer against near-miss candidates instead of only labelled singles.
 - **Leave-domain-out test** (e.g. REL, currently only in train), to measure transfer across theories rather than within them; also a `--no-names` ablation.
