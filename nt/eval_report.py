@@ -19,6 +19,15 @@ Sections:
   4. complementarity: problems proved by each method in any configuration
      (any k, either setting), the union, and which problems only one method
      or only one configuration proves (names listed for --list-splits)
+
+Portfolios of singles (--singles out/eval_singles/*.jsonl, from
+slurm/eval_sets.sbatch with MODE=singles): each member of a set run alone,
+with its rank. For every K up to the file's k they become a method
+"<method>-singles" whose "set" run at k=K is the portfolio of the top-K
+singles run side by side with the budget shared equally: it costs K times
+its cheapest proof, so it proves the problem only if some top-K single
+proves it within 1/K of the budget. This needs --alloc-budget, and makes
+"<method>-singles" at k=K cost the same as one k=K set.
 """
 
 from __future__ import annotations
@@ -59,6 +68,51 @@ def load_runs(paths: list[str]) -> dict:
             if r["kind"] in ("base", "set"):
                 out[key][r["problem"]][r["kind"]] = r
     return out
+
+
+def load_singles(paths: list[str]) -> dict:
+    """{(method, k, flat): {problem: {rank: row}}} from --singles-only outputs."""
+    out: dict = collections.defaultdict(lambda: collections.defaultdict(dict))
+    for p in paths:
+        key = parse_name(p)
+        if key is None:
+            print(f"skipping {p}: name is not <method>_k<K>_<flat|noflat>[_<shard>].jsonl")
+            continue
+        for line in open(p):
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            if r["kind"] == "single" and r.get("rank") is not None:
+                out[key][r["problem"]][r["rank"]] = r
+    return out
+
+
+def singles_portfolio(singles: dict, K: int) -> dict:
+    """The "set" row of a portfolio of the top-K singles (ranks 0..K-1) run
+    with the budget shared equally: cost K x the cheapest proof."""
+    proofs = [r for rank, r in singles.items() if rank < K and r["status"] == "proved"]
+    if not proofs:
+        return {"status": "budget", "cps": None, "allocated_bytes": None}
+    best = min(proofs, key=lambda r: (r.get("allocated_bytes") or 0, r["cps"]))
+    return {"status": "proved", "cps": K * best["cps"],
+            "allocated_bytes": K * (best.get("allocated_bytes") or 0), "rank": best["rank"]}
+
+
+def add_singles(runs: dict, singles: dict) -> None:
+    """Add "<method>-singles" at every k = 1..kmax that the set runs also
+    have, with the base run taken from the set evaluation."""
+    base: dict = {}
+    for (_, _, flat), probs in runs.items():
+        for p, rr in probs.items():
+            if "base" in rr:
+                base.setdefault((p, flat), rr["base"])
+    ks = {k for _, k, _ in runs}
+    for (method, kmax, flat), probs in singles.items():
+        for K in sorted(k for k in ks if k <= kmax):
+            for p, by_rank in probs.items():
+                if (p, flat) in base:
+                    runs.setdefault((f"{method}-singles", K, flat), {})[p] = {
+                        "base": base[p, flat], "set": singles_portfolio(by_rank, K)}
 
 
 def load_splits(data_dir: str) -> dict:
@@ -273,12 +327,15 @@ def _cfg_list(by_cfg, p, method) -> str:
                     if p in by_cfg[m, k, flat])
 
 
-def report(runs: dict, splits: dict, list_splits=("hard",)) -> str:
+def report(runs: dict, splits: dict, list_splits=("hard",), singles: dict | None = None) -> str:
     head = ["# Twee evaluation of generated sets", ""]
     if ALLOC_BUDGET is not None:
         head += [f"Re-scored with an allocation budget of {ALLOC_BUDGET:.3g} bytes: a run counts "
                  "as proved only if it allocated at most that; ratios are allocation ratios.", ""]
-    return "\n".join(head + budget_check(runs)
+    check = budget_check(runs)          # on real runs only, before the portfolios
+    if singles:
+        add_singles(runs, singles)
+    return "\n".join(head + check
                      + per_config(runs, splits) + head_to_head(runs, splits)
                      + portfolio(runs, splits) + complementarity(runs, splits, list_splits))
 
@@ -293,7 +350,12 @@ def main() -> None:
     ap.add_argument("--alloc-budget", type=float, metavar="BYTES",
                     help="count a run as proved only if it allocated at most BYTES "
                          "(deterministic, unlike the wall clock); see section 0 for a safe value")
+    ap.add_argument("--singles", nargs="+", metavar="FILE",
+                    help="out/eval_singles/*.jsonl: add portfolios of the top-K singles "
+                         "with the budget shared equally (needs --alloc-budget)")
     args = ap.parse_args()
+    if args.singles and args.alloc_budget is None:
+        ap.error("--singles needs --alloc-budget (the portfolio shares that budget)")
     global ALLOC_BUDGET
     ALLOC_BUDGET = args.alloc_budget
     files = [f for pat in args.files for f in (glob.glob(pat) or [pat])]
@@ -301,8 +363,12 @@ def main() -> None:
     merged = {f for f in files if re.search(r"_\d+\.jsonl$", f) is None}
     shards = {re.sub(r"_\d+\.jsonl$", ".jsonl", f) for f in files if f not in merged}
     files = [f for f in files if f not in (merged & shards)]
+    singles = None
+    if args.singles:
+        sfiles = [f for pat in args.singles for f in (glob.glob(pat) or [pat])]
+        singles = load_singles(sfiles)
     text = report(load_runs(files), load_splits(args.data),
-                  tuple(x for x in args.list_splits.split(",") if x))
+                  tuple(x for x in args.list_splits.split(",") if x), singles)
     print(text)
     if args.out:
         with open(args.out, "w") as fh:

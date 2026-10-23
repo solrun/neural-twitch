@@ -413,6 +413,27 @@ baseline's are as good or better, presumably because likelihood reranking
 makes the list less varied. `--method mix` takes the reranked first
 candidate followed by the baseline order.
 
+Portfolio of singles: since a set behaves like its best member, run each of
+the top candidates alone instead of together. Run the members of the k=5
+sets one at a time (no baseline or set runs; those come from the set
+evaluation), then let the report build, for each K <= 5, a portfolio of the
+top-K singles that shares the allocation budget equally (it proves a
+problem only if some top-K single proves it within 1/K of the budget), so
+it costs the same as one k=K set:
+
+```bash
+F=(out/rerank_k5_flat.jsonl out/rerank_k5_noflat.jsonl \
+   out/base_combined_k5_flat.jsonl out/base_combined_k5_noflat.jsonl)
+SHARDS=8
+sbatch -A <project> --array=0-$(( ${#F[@]} * SHARDS - 1 )) \
+    --export=ALL,SHARDS=$SHARDS,WALL=3600,MODE=singles slurm/eval_sets.sbatch "${F[@]}"
+python -m nt.eval_report 'out/eval/*.jsonl' --data data/dataset --alloc-budget 2.0e12 \
+    --singles 'out/eval_singles/*.jsonl' --out eval_report.md
+```
+
+The portfolios appear as methods `rerank-singles` and `base_combined-singles`
+at k = 1, 3, 5; at k=1 they should match the k=1 sets.
+
 ## Next steps
 
 1. **Deterministic cost in Twee.** Done: `--deterministic-alloc` gives

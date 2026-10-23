@@ -40,3 +40,16 @@ cat out/expand/extra_base_*.jsonl > out/expand/extra_base.jsonl
 
 After that, the usual pipeline applies: `hindsight` → `base` on the subproblem
 manifest → `abstract` → `single_runs`.
+
+## Hard problems
+
+`hard_extra.txt` lists the 29 problems (3 native, 26 ifeq) that Twee alone
+fails within 1000 s under both flattening settings — the same criterion as
+`data/hard_problems.txt`. It is kept separate so the original 96 hard problems
+stay comparable; pass both to `nt.dataset` with
+`--hard <(cat data/hard_problems.txt data/tptp_extra/hard_extra.txt)`.
+
+Of the other 54, 24 are worth labelling: MVA001–003 and 006–015, ANA133-1,
+NUN133-1, and KLE044, 084, 090, 104, 108, 122, 145, 147, 151. The other 30
+are proved in under 10k CPs, so hindsight skips them and no labels come from
+them.
