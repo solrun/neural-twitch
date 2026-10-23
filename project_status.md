@@ -6,7 +6,7 @@ Goal: learn to generate Twitch-style abstractions (term patterns given to Twee a
 - The dataset now includes the TPTP unit-equality problems Twitch did not use: 124 more labelled problems, including two new theories (MVA, KLE), and 29 more hard problems (section 3).
 - A model retrained on it gives the same hard-problem results within noise (24 of 96 over all configurations) and the first clear speedups on test (median 0.61 at k=1, flattening off) (section 5).
 - **Sampling is now the best method on hard problems.** The new model's own samples (`nt.model.predict`, ranked by frequency) prove 16 / 20 / 21 of the 96 at k = 1 / 3 / 5, and 26 over all configurations, against 14 / 19 / 18 and 24 for reranking with the same model (section 5c).
-- But the gain is pattern transfer, not invention: only 3–12% of sampled abstractions have new shapes, and the two problems only sampling proves need none (section 5c).
+- But the proofs come from reuse, not invention: every single-abstraction proof uses an abstraction labelled in training exactly as written, and no proved problem needs a new shape. 12 of the 26 hard proofs are on ifeq-encoded problems, mostly via one generic encoding pattern (section 5c).
 
 ## 1. Infrastructure (done)
 
@@ -197,20 +197,26 @@ First results (`data/dataset`). hit@k is the share of examples where a known hel
 
 **New problems (`?`):** sampled sets prove 3 of the 29 new hard problems, the new reranker 5.
 
-**Attribution** (`nt.attribute`, `attribution_pred.md`). For the two problems only sampling proves, the proving sets are the same three Robbins abstractions: `negate(add(X0, X1))` (labelled in training), `add(X0, negate(X1))` and `add(X0, negate(add(X1, X2)))` (new as written, known shapes). Neither needs a new shape. So the generator's advantage is transferring known patterns to the problem's symbols, and choosing more varied sets, not inventing patterns.
+**Attribution** (`nt.attribute --all`, `attribution_pred_all.md`). Every problem sampling proves (26 hard plus 9 new problems in split `?`), each proving set's abstractions marked seen (labelled in training), new string, or new shape (symbols renamed, `nt.baseline.shape_of`):
+- **k=1 proofs: all 36 proving configurations use a seen abstraction**, exactly as written. When one abstraction suffices, the model retrieves one it learned, usually from the same theory with the same symbols (`apply(apply(s, X0), X1)` for COL, `meet(a, X0)` for LAT400, `multiplication(antidomain(X0), X1)` for KLE).
+- **No problem needs a new shape.** Only COL046-1 and LCL225-10 have a new-shape abstraction in every proving sampled set, and reranked sets (and for LCL225-10 the baseline) prove both without one. 33 of 35 have a proving set of known shapes only.
+- **New shapes appear** in about a third of the sets, but as trivial variants (`apply(apply(b, X0), X0)`) or long ground terms (nested `apply(apply(b, b), apply(b, …))`), never as what makes the difference.
+- **Where sampling adds:** ROB031-2, ROB032-2, ROB034-1, ROB035-1 at k=3 and 5, with variants of the seen `negate(add(X0, X1))` such as `add(X0, negate(X1))` and `add(X0, negate(add(X1, X2)))` (new strings, known shapes). ROB032-2 and ROB034-1 are the two problems only sampling proves.
+- **ifeq-encoded problems:** 12 of the 26 hard proofs (BOO004-10, RNG001-10, RNG004-10, and LCL225/245/289/304/331/339/348/375/395-10). Most are proved at k=1 by one generic encoding pattern, `ifeq(X0, true, X1, true)` or `ifeq(X0, true, theorem(X1), true)` (the latter alone proves LCL245, 289, 304, 331 and 348 at k=1). That is a property of the Horn-to-equation encoding, not of the mathematics.
+- **So the claim is:** the model retrieves the right seen abstraction, and sampling adds useful variants of known patterns, which is why it beats reranking at k=3 and 5. It does not yet invent useful new abstractions; transfer to unseen theories is untested.
 
 ## 6. Open questions and next steps
 
-- **Attribute every sampled proof,** not only the two unique ones: over all 26 hard problems sampling proves, especially the k=1 proofs (one abstraction each), does any proof need a new shape? Needs an `--all` option in `nt.attribute`.
-- **New patterns, not just new symbols:** if no proof needs a new shape, try a decoder built for diversity, e.g. a conditional VAE as in the neural conjecturing work, or sampling at a higher temperature.
+- **Leave-domain-out test, now the key experiment:** every proof so far is explained by reuse of seen abstractions, so only a held-out theory shows whether anything transfers (e.g. hold out REL, ROB or COL; also a `--no-names` ablation).
+- **Native vs ifeq-encoded problems:** report hard results separately for the two, since one generic encoding pattern accounts for 12 of the 26 sampled hard proofs.
+- **New patterns, not just reuse:** try a decoder built for diversity, e.g. a conditional VAE as in the neural conjecturing work, or sampling at a higher temperature.
+- **Overlap of hard with training theories:** quantify how many hard problems share an axiomatization (or symbol names) with training problems; the attribution suggests most proved ones do.
 - **Sampling as the default method** for later evaluations (ETP, leave-domain-out), with rerank as the comparison.
 - **Lost test proofs:** the new model loses more at k=1 with flattening on (9 vs 3). Look at which problems, and whether a portfolio with plain Twee covers them all.
 - **Portfolio of singles instead of sets:** run each of rerank's top k candidates as a separate single-abstraction run, against a k-set at the same total cost (tooling done: `eval_sets.sbatch MODE=singles`, `nt.eval_report --singles`).
 - **MVA weight in training:** one axiom group is about 10% of train; try per-group down-weighting, or a run without MVA.
 - **Diversity in reranking:** a diversity penalty (e.g. no two candidates with the same shape) might close rerank's gap to sampling at k=5.
-- **Overlap of hard with training theories:** check how many hard problems share an axiomatization with training problems, i.e. whether the new proofs come from within-theory transfer.
 - **Better generalisation:** smaller model or stronger name dropout, more data (more hindsight subproblems), or train the scorer against near-miss candidates instead of only labelled singles.
-- **Leave-domain-out test** (e.g. REL, currently only in train), to measure transfer across theories rather than within them; also a `--no-names` ablation.
 - **ETP** solve rate with the generated sets.
 - **Possible LLM comparison**, using the text form of the dataset (`text.jsonl`).
 - **Label backup:** commit the label files to git as a backup.
