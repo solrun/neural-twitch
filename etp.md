@@ -83,10 +83,18 @@ not in the goal.
 So none of the 29,163 class representatives is useful for labels or as a
 hard problem.
 
-## Random sample
+## Random tier
 
-10,000 of the random tier (seed 0; random true pairs, no pure instances):
-**all trivial** as well.
+First 10,000 (fixed sample), then all 100,000 (random true pairs, seed 0, no
+pure instances): **99,999 trivial, one in the label band, none hard.**
+
+The one is ETP-2923_2638, an equivalence (both laws in class 4):
+2923 `X = m(m(m(Y, m(X, Z)), Y), X)` => 2638 `X = m(m(Y, m(m(Z, W), U)), X)`.
+65 CPs with goal flattening off, **11,512 with flattening on** (3.7 s), so
+only flattening makes it non-trivial. Its proof is kept
+(`$NT_STORE/etp/proofs/ETP/ETP-2923_2638_flat.txt.gz`). The same hypothesis
+has the fifth longest Vampire proof in ETP, 2923 => 2628 (62 steps), which
+is trivial for Twee (known tier).
 
 ## ETP's own hard implications
 
@@ -104,14 +112,17 @@ hard problem.
   already selected, among them the second and third longest Vampire proofs,
   3957 => 3971 (133 steps) and 3569 => 3957 (105), and 650 => 448 (65).
   **All 550 are trivial** (same triage settings), including 1571 => 3167 and
-  1571 => 4656.
+  1571 => 4656. The other 1,063 are in the tiers above (27 in the random
+  tier), so every pair ETP proved on its own has now been run: all trivial.
 
 ## Conclusion
 
-39,713 true implications, including 1,587 of the 1,613 that ETP proved on
-their own (Vampire and by hand; the other 26 are in the part of the random
-tier not run yet), and not one needs 10k CPs. Below that, hint ratios mean little
-(DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
-hard problems for Twee, and ETP cannot serve as the leave-domain-out test
-as planned. What remains of ETP's difficulty is in the refutations (finite
-and infinite counterexamples), which Twee does not address.
+129,713 true implications (all class representatives, 100,000 random pairs,
+and all 1,613 pairs ETP proved on its own, by Vampire or by hand) in 259,426
+runs: every run proved, and **one problem needs more than 10k CPs, and only
+with goal flattening on** (ETP-2923_2638, 11,512 CPs; 65 without
+flattening). Below 10k CPs hint ratios mean little (DEFAULT_MIN_CPS), so
+ETP's positive implications give neither labels nor hard problems for Twee,
+and ETP cannot serve as the leave-domain-out test as planned. What remains
+of ETP's difficulty is in the refutations (finite and infinite
+counterexamples), which Twee does not address.
