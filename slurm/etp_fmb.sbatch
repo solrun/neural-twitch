@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Countermodel search with Vampire's finite model builder (nt.etp fmb) on a
-# list of ETP problems, e.g. the pairs problems Twee did not prove:
+# Vampire on a list of ETP problems (nt.etp fmb): countermodel search with the
+# finite model builder (MODE=fmb, default) or proof search with the CASC
+# strategy schedule (MODE=casc). E.g. the pairs problems Twee did not prove:
 #   mkdir -p logs out/etp
 #   sbatch --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/hard.txt,NAME=fmb_pairs \
 #       slurm/etp_fmb.sbatch
@@ -11,7 +12,12 @@
 # Options (--export=ALL,...):
 #   LIST    problem names, one per line (required)
 #   NAME    output prefix (default fmb)
-#   LIMIT   seconds per problem (default 60)
+#   MODE    fmb (countermodels, default) or casc (proofs)
+#   LIMIT   seconds per problem (default 60 for fmb, 600 for casc)
+# Proofs and models of decided problems are kept in out/etp/vampire_<NAME>/.
+# Proof search on the problems the model builder left open:
+#   sbatch --array=0-3 --export=ALL,LIST=out/etp/lists_pairs/fmb_unknown.txt,MODE=casc,NAME=casc_pairs \
+#       slurm/etp_fmb.sbatch
 # After an interruption, rerun the unfinished shards with the same SHARDS and
 # EXTRA_ARGS=--resume.
 #SBATCH -J nt-etp-fmb
@@ -36,5 +42,7 @@ trap 'rm -rf "$WORK"' EXIT
 python -m nt.etp write data/etp --problems "$LIST" --shard "$K/$N" --out-dir "$WORK"
 # shellcheck disable=SC2086  # EXTRA_ARGS is word-split on purpose
 python -m nt.etp fmb "$WORK/manifest.jsonl" --out "out/etp/${NAME}_${K}.tsv" \
-    --vampire "$VAMPIRE_PATH" --limit "${LIMIT:-60}" --workers "$SLURM_CPUS_PER_TASK" \
+    --vampire "$VAMPIRE_PATH" --mode "${MODE:-fmb}" \
+    --limit "${LIMIT:-$([ "${MODE:-fmb}" = casc ] && echo 600 || echo 60)}" \
+    --save-dir "out/etp/vampire_${NAME}" --workers "$SLURM_CPUS_PER_TASK" \
     ${EXTRA_ARGS:-}

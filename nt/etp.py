@@ -721,15 +721,22 @@ def cmd_summarize(args) -> None:
 FMB_FIELDS = ("problem", "status", "seconds", "model_size")
 
 
-def _fmb_job(prob: dict, vampire: str, limit: int) -> tuple:
-    """Vampire's finite model builder on one problem. Satisfiable (a finite
-    countermodel of hypotheses and negated goal): the implication is false;
-    Unsatisfiable: true; otherwise unknown."""
+VAMPIRE_MODES = {
+    "fmb": ["-sa", "fmb", "-sas", "cadical"],   # finite model builder: countermodels
+    "casc": ["--mode", "casc"],                 # CASC strategy schedule: proofs
+}
+
+
+def _fmb_job(prob: dict, vampire: str, limit: int, mode: str = "fmb",
+             save_dir: str = "") -> tuple:
+    """Vampire on one problem. Satisfiable (a model of hypotheses and negated
+    goal): the implication is false; Unsatisfiable: true; otherwise unknown.
+    With save_dir, the output of decided runs (proof or model) is kept."""
     import subprocess
     import time
     t0 = time.monotonic()
     try:
-        out = subprocess.run([vampire, "-sa", "fmb", "-sas", "cadical", "-t", f"{limit}s",
+        out = subprocess.run([vampire, *VAMPIRE_MODES[mode], "-t", f"{limit}s",
                               prob["path"]], capture_output=True, text=True,
                              timeout=limit + 30).stdout
     except subprocess.TimeoutExpired:
@@ -741,6 +748,9 @@ def _fmb_job(prob: dict, vampire: str, limit: int) -> tuple:
                   "Unsatisfiable": "true", "Theorem": "true"}.get(m.group(1), "unknown")
     sizes = re.findall(r"TRYING \[(\d+)\]", out)
     size = sizes[-1] if status == "false" and sizes else ""
+    if save_dir and status != "unknown":
+        with gzip.open(os.path.join(save_dir, f"{prob['problem']}_{mode}.txt.gz"), "wt") as f:
+            f.write(out)
     return prob["problem"], status, round(time.monotonic() - t0, 2), size
 
 
@@ -755,14 +765,17 @@ def cmd_fmb(args) -> None:
     todo = [p for p in probs if p["problem"] not in done]
     workers = args.workers or (len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity")
                                else os.cpu_count() or 1)
-    print(f"{len(todo)} problems ({len(done)} already done), {args.limit} s each, "
-          f"{workers} workers", flush=True)
+    print(f"{len(todo)} problems ({len(done)} already done), Vampire {args.mode}, "
+          f"{args.limit} s each, {workers} workers", flush=True)
+    if args.save_dir:
+        os.makedirs(args.save_dir, exist_ok=True)
     new = not os.path.exists(args.out) or not args.resume
     counts = collections.Counter()
     with open(args.out, "w" if new else "a") as out, ProcessPoolExecutor(workers) as ex:
         if new:
             out.write("\t".join(FMB_FIELDS) + "\n")
-        futs = [ex.submit(_fmb_job, p, args.vampire, args.limit) for p in todo]
+        futs = [ex.submit(_fmb_job, p, args.vampire, args.limit, args.mode, args.save_dir)
+                for p in todo]
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             counts[r[1]] += 1
@@ -974,10 +987,15 @@ def main() -> None:
     sm.add_argument("--count-problems", action="store_true",
                     help="count distinct problems (needs memory for all names)")
     sm.add_argument("--write-lists", default="", metavar="DIR")
-    fm = sub.add_parser("fmb", help="Vampire finite model builder: countermodel search")
+    fm = sub.add_parser("fmb", help="Vampire on a manifest: countermodels (fmb) or proofs (casc)")
     fm.add_argument("manifest", help="manifest.jsonl from `write`")
     fm.add_argument("--out", required=True, help="results (.tsv)")
     fm.add_argument("--vampire", default=os.environ.get("VAMPIRE_PATH", "vampire"))
+    fm.add_argument("--mode", choices=sorted(VAMPIRE_MODES), default="fmb",
+                    help="fmb: finite model builder (countermodels); casc: CASC strategy "
+                         "schedule (proofs, also saturation)")
+    fm.add_argument("--save-dir", default="",
+                    help="keep Vampire's output (proof or model) of decided problems here")
     fm.add_argument("--limit", type=int, default=60, help="seconds per problem")
     fm.add_argument("--workers", type=int, default=0, help="default: available CPUs")
     fm.add_argument("--resume", action="store_true")
