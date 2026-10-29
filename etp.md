@@ -243,18 +243,45 @@ with at least 10k CPs are labelling candidates; unproved ones are of unknown
 status and must not be treated as hard theorems (the mistake behind Twitch's
 ETP set).
 
+**Pairs triage** (19,884 problems, same settings): **16,481 trivial, none in
+the label band, 3,403 unproved** under both settings within 1M CPs / 300 s.
+Twee either finds a proof almost at once or none at all. The unproved ones
+are presumably false (they are what the weak filter lets through), not
+checked yet; they are of unknown status, not hard theorems.
+
+## All true implications (2026-10-29)
+
+Every one of the 8,173,585 non-reflexive true implications (`TIERS=all`),
+both flattening settings, same settings as the triage: **16,347,170 runs,
+all proved.** Proved runs by CP count:
+
+| CPs | flattening off | flattening on |
+|---|---|---|
+| 0 | 4,093,419 (50.1%) | 3,846,491 (47.1%) |
+| 1–9 | 3,955,103 (48.4%) | 3,102,852 (38.0%) |
+| 10–99 | 124,730 (1.5%) | 1,151,020 (14.1%) |
+| 100–999 | 317 | 71,670 (0.9%) |
+| 1,000–9,999 | 16 | 1,548 |
+| 10,000–99,999 | 0 | 4 |
+| total wall | 101,662 s | 111,936 s |
+
+The only problems needing 10k CPs are the four already found in the
+triage (ETP-2923_2579, 2618, 2633, 2638; about 11,500 CPs with flattening
+on, 65 without), so the tiers above missed nothing. With flattening off, no
+true ETP implication needs even 10k CPs, and 98.5% need fewer than 10.
+
 ## Conclusion
 
-131,879 true implications in 263,758 runs: all class representatives,
-100,000 random pairs, all 1,613 pairs with a Vampire or hand-written proof in
-ETP, and all 2,390 that Vampire proved only with its 600 s limit. Every run
-proved. **Four problems need more than 10k CPs, all with hypothesis 2923
-(the dual of 650) and only with goal flattening on** (about 11,500 CPs; 65
-without flattening). Below 10k CPs hint ratios mean little
-(DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
-hard problems for Twee (four problems of one hypothesis are no dataset), and
-ETP cannot serve as the leave-domain-out test as planned. This matches the
+**All 8,173,585 true ETP implications are proved by plain Twee** (16,347,170
+runs; total wall time about 59 hours). Only four need more than 10k CPs, all
+with hypothesis 2923 (the dual of 650) and only with goal flattening on
+(about 11,500 CPs; 65 without). Two-law hypotheses (pairs tier) do not
+change this: 16,481 of 19,884 trivial, none in between, the rest unproved
+and presumably false. Below 10k CPs hint ratios mean little
+(DEFAULT_MIN_CPS), so ETP gives neither labels nor hard problems for Twee,
+and cannot serve as the leave-domain-out test as planned. This matches the
 ETP paper and Janota: the positive implications are easy for ATPs, the
 difficulty is in the refutations (finite and infinite counterexamples),
 which Twee does not address, and what little difficulty there is belongs to
-the hypotheses 450, 650 and their duals.
+the hypotheses 450, 650 and their duals. On the 2,390 implications Vampire
+found hard, Twee is about 500x faster.
