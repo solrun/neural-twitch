@@ -171,14 +171,30 @@ saturation 600 s).
   difficulty belongs to the hypothesis law, not the implication.
 - 224 of the 2,390 were already run here (all trivial); the other 2,166 are
   the `vampire_hard` tier.
+
+**vampire_hard triage** (2,166 problems, same settings): 2,163 trivial,
+**3 in the label band**, none hard. All three have hypothesis 2923 and the
+profile of ETP-2923_2638: 65 CPs with flattening off, about 11,500 with it
+on (3.6–3.7 s).
+
+| problem | flattening off | flattening on |
+|---|---|---|
+| ETP-2923_2579 | 65 | 11,525 |
+| ETP-2923_2618 | 65 | 11,523 |
+| ETP-2923_2633 | 65 | 11,505 |
+| ETP-2923_2638 (random tier) | 65 | 11,512 |
 ## Conclusion
 
-129,713 true implications (all class representatives, 100,000 random pairs,
-and all 1,613 pairs ETP proved on its own, by Vampire or by hand) in 259,426
-runs: every run proved, and **one problem needs more than 10k CPs, and only
-with goal flattening on** (ETP-2923_2638, 11,512 CPs; 65 without
-flattening). Below 10k CPs hint ratios mean little (DEFAULT_MIN_CPS), so
-ETP's positive implications give neither labels nor hard problems for Twee,
-and ETP cannot serve as the leave-domain-out test as planned. What remains
-of ETP's difficulty is in the refutations (finite and infinite
-counterexamples), which Twee does not address.
+131,879 true implications in 263,758 runs: all class representatives,
+100,000 random pairs, all 1,613 pairs with a Vampire or hand-written proof in
+ETP, and all 2,390 that Vampire proved only with its 600 s limit. Every run
+proved. **Four problems need more than 10k CPs, all with hypothesis 2923
+(the dual of 650) and only with goal flattening on** (about 11,500 CPs; 65
+without flattening). Below 10k CPs hint ratios mean little
+(DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
+hard problems for Twee (four problems of one hypothesis are no dataset), and
+ETP cannot serve as the leave-domain-out test as planned. This matches the
+ETP paper and Janota: the positive implications are easy for ATPs, the
+difficulty is in the refutations (finite and infinite counterexamples),
+which Twee does not address, and what little difficulty there is belongs to
+the hypotheses 450, 650 and their duals.
