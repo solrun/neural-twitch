@@ -183,6 +183,35 @@ on (3.6–3.7 s).
 | ETP-2923_2618 | 65 | 11,523 |
 | ETP-2923_2633 | 65 | 11,505 |
 | ETP-2923_2638 (random tier) | 65 | 11,512 |
+
+## Twee vs Vampire: time
+
+Per problem, Twee's wall time from the triage (Vera, allocation clock, 1M
+CPs) against Vampire's time in Janota's data (his machine, up to 100
+parallel workers; the time of the method that solved it). Both include
+process startup. All 131,879 problems:
+
+| | median | p99 | max | total |
+|---|---|---|---|---|
+| Vampire | 0.023 s | 29.9 s | 101.6 s | 69,701 s |
+| Twee, flattening off | 0.027 s | 0.11 s | 3.65 s | 4,714 s |
+| Twee, flattening on | 0.029 s | 0.30 s | 5.14 s | 6,582 s |
+
+- **The 126,245 Vampire proved within 500 instructions:** no real
+  difference; both take 20–30 ms, mostly startup. Vampire is slightly
+  faster (Twee flattening off: Vampire/Twee geometric mean 0.97, median
+  0.90; Twee faster on 46%).
+- **The 2,390 Vampire needed its 600 s run for** (hypotheses 650, 2923, 450,
+  3089): Vampire median 30 s, max 102 s; Twee with flattening off median
+  0.05 s, max 3.65 s. **Twee is about 500x faster** (geometric mean 475,
+  median 552) with flattening off and about 70x with it on (median 0.36 s,
+  max 5.1 s), and faster on every one of them. For 450 => 432, Vampire
+  102 s, Twee 3.7 s (about 28x).
+- Caveats: different machines and load; Vampire's `--mode casc` runs a
+  schedule of strategies, so its 30 s is mostly time on strategies that fail
+  (a single good strategy would be much faster); 3,244 easy ones were
+  solved by Vampire's finite model builder run.
+
 ## Conclusion
 
 131,879 true implications in 263,758 runs: all class representatives,
