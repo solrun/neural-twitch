@@ -108,3 +108,49 @@ def test_vampire_hard_tier_and_class_count():
     v = [r for r in rows if r["tier"] == "vampire_hard"]
     assert [(r["hyp"], r["concl"], r["vampire_time"]) for r in v] == [(4, 7, 40.0)]
     assert stats["classes"] == 5          # {1}, {2,6}, {3,4}, {5}, {7}
+
+
+def test_satisfaction_counts():
+    # of the 16 magmas on {0, 1}: all satisfy x = x, 8 are commutative, only
+    # the left projection satisfies x = x*y, none satisfies x = y
+    mags = [etp.all_magmas(2)]
+    sat = etp.satisfaction(["X = X", "m(X, Y) = m(Y, X)", "X = m(X, Y)", "X = Y"], mags)
+    assert sat.shape == (4, 16)
+    assert sat[0].all() and sat[1].sum() == 8 and sat[2].sum() == 1 and not sat[3].any()
+    # associativity on {0, 1}: 8 of the 16 tables are semigroups
+    assoc = etp.satisfaction(["m(m(X, Y), Z) = m(X, m(Y, Z))"], mags)
+    assert assoc.sum() == 8
+
+
+def test_pairs_problem_text():
+    laws = {10: {"id": 10, "formula": "X = m(X, X)"},
+            20: {"id": 20, "formula": "m(X, Y) = m(Y, X)"},
+            30: {"id": 30, "formula": "m(X, m(X, Y)) = m(Y, m(X, X))"}}
+    row = {"hyp": 10, "hyp2": 20, "concl": 30, "tier": "pairs", "code": None,
+           "hyp_class": 1, "hyp2_class": 2, "concl_class": 3}
+    text = etp.problem_text(row, laws)
+    assert "cnf(equation10, axiom," in text and "cnf(equation20, axiom," in text
+    assert "m(a, m(a, b)) != m(b, m(a, a))" in text
+    assert etp.problem_name(10, 30, 20) == "ETP-10_20_30"
+
+
+def test_select_pairs_filters():
+    import numpy as np
+    # laws: 1 x=x, 2 x=y, 3 idempotent, 4 commutative, 5 a consequence of
+    # commutativity that this toy matrix does not record, 6 left projection
+    formulas = ["X = X", "X = Y", "X = m(X, X)", "m(X, Y) = m(Y, X)",
+                "m(X, m(X, Y)) = m(m(Y, X), X)", "X = m(X, Y)"]
+    n = len(formulas)
+    T = np.eye(n, dtype=bool); T[:, 0] = True; T[1, :] = True
+    M = np.where(T, 3, -3).astype(np.int8)
+    cls = etp.equivalence_classes(M > 0)
+    sat = etp.satisfaction(formulas, [etp.all_magmas(2), etp.all_magmas(3)])
+    rows = etp.select_pairs(M, cls, sat, n_pairs=3, per_pair=5, seed=0,
+                            sizes=[0] * n, formulas=formulas)
+    for r in rows:
+        a, b, c = r["hyp"] - 1, r["hyp2"] - 1, r["concl"] - 1
+        both = sat[a] & sat[b]
+        assert both.any() and not (both & ~sat[c]).any()       # no filter magma refutes
+        assert M[a, c] <= 0 and M[b, c] <= 0 and c not in (0, 1)
+    # 3 and 4 => 5 is true, so no magma refutes it and it must be a candidate
+    assert any((r["hyp"], r["hyp2"], r["concl"]) == (3, 4, 5) for r in rows)

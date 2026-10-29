@@ -52,6 +52,15 @@ equivalent when each implies the other):
               data/etp/vampire_hard.tsv, with Vampire's time): 2,390 pairs
               with only four hypotheses, 650 and its dual 2923 (1,192 each),
               450 and its dual 3089 (3 each); the 2,166 not in another tier.
+  pairs       two laws as hypotheses, E1 and E2 => E3, where neither law
+              implies E3 alone (build --pairs N --pairs-per K): E1, E2
+              incomparable and not degenerate, some filter magma satisfies
+              both (so together they are not x = y), and no filter magma
+              (all of size 2 and 3, --size4 random of size 4) satisfies E1
+              and E2 but not E3. ETP does not cover these, so the truth of
+              each is unknown: only a proof settles it, and unproved ones
+              must not be treated as hard theorems. Named
+              ETP-<hyp>_<hyp2>_<concl>, code null.
 
 Every row has `instance`: the conclusion is a substitution instance of the
 hypothesis (either orientation), so one rewrite proves it. Implications into
@@ -63,7 +72,7 @@ the pair with the fewest operations in total (lowest numbers on ties).
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
       --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp \\
       --random 100000 --known data/etp/known.tsv \\
-      --vampire-hard data/etp/vampire_hard.tsv
+      --vampire-hard data/etp/vampire_hard.tsv --pairs 4000 --pairs-per 5
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
@@ -92,7 +101,8 @@ import re
 import sys
 import tarfile
 
-TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known", "vampire_hard")
+TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known", "vampire_hard",
+         "pairs")
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
          2: "explicit_conjecture_true", -2: "explicit_conjecture_false",
@@ -170,8 +180,8 @@ def skolemize(formula: str) -> str:
     return _VAR.sub(sub, formula)
 
 
-def problem_name(hyp: int, concl: int) -> str:
-    return f"ETP-{hyp}_{concl}"
+def problem_name(hyp: int, concl: int, hyp2: int | None = None) -> str:
+    return f"ETP-{hyp}_{concl}" if hyp2 is None else f"ETP-{hyp}_{hyp2}_{concl}"
 
 
 def problem_text(row: dict, laws: dict[int, dict]) -> str:
@@ -180,6 +190,19 @@ def problem_text(row: dict, laws: dict[int, dict]) -> str:
     axioms (one axiomatization for the dataset split)."""
     h, c = laws[row["hyp"]], laws[row["concl"]]
     lhs, _, rhs = skolemize(c["formula"]).partition(" = ")
+    if row.get("hyp2"):
+        h2 = laws[row["hyp2"]]
+        return (f"% Two ETP laws: equations {h['id']} and {h2['id']} => equation {c['id']} "
+                f"(status unknown: neither law implies it alone, and no magma of the "
+                f"filter set refutes it)\n"
+                f"% tier {row['tier']}; hypothesis classes {row['hyp_class']} and "
+                f"{row['hyp2_class']}, conclusion class {row['concl_class']}\n"
+                f"% {h['id']}: {h['formula']}\n"
+                f"% {h2['id']}: {h2['formula']}\n"
+                f"% {c['id']}: {c['formula']}\n"
+                f"cnf(equation{h['id']}, axiom,\n    {h['formula']} ).\n\n"
+                f"cnf(equation{h2['id']}, axiom,\n    {h2['formula']} ).\n\n"
+                f"cnf(goal, negated_conjecture,\n    {lhs} != {rhs} ).\n")
     status = CODES.get(row["code"], str(row["code"]))
     return (f"% ETP implication: equation {h['id']} => equation {c['id']} ({status})\n"
             f"% tier {row['tier']}; hypothesis class {row['hyp_class']}, "
@@ -188,6 +211,96 @@ def problem_text(row: dict, laws: dict[int, dict]) -> str:
             f"% {c['id']}: {c['formula']}\n"
             f"cnf(equation{h['id']}, axiom,\n    {h['formula']} ).\n\n"
             f"cnf(goal, negated_conjecture,\n    {lhs} != {rhs} ).\n")
+
+
+# ------------------------------------------------------------------ magmas
+
+def all_magmas(n: int):
+    """Every magma on {0..n-1} as an array (n^(n*n), n, n) of operation tables."""
+    import numpy as np
+    k = n ** (n * n)
+    idx = np.arange(k)
+    t = np.empty((k, n * n), np.int8)
+    for j in range(n * n):
+        t[:, n * n - 1 - j] = (idx // n ** j) % n
+    return t.reshape(k, n, n)
+
+
+def filter_magmas(n_size4: int, seed: int = 0):
+    """The magmas used to refute candidate implications: all of size 2 and 3
+    and n_size4 random ones of size 4 (operation tables, one array per size)."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    return [all_magmas(2), all_magmas(3),
+            rng.integers(0, 4, size=(n_size4, 4, 4)).astype(np.int8)]
+
+
+def satisfaction(formulas: list[str], magma_sets) -> "np.ndarray":
+    """sat[i, k]: magma k satisfies law i ('l = r' with variables X, Y, ...)."""
+    import numpy as np
+    from nt.terms import Var, parse
+    cols = []
+    for tabs in magma_sets:
+        k, n, _ = tabs.shape
+        kk = np.arange(k)[:, None]
+        out = np.zeros((len(formulas), k), bool)
+        for i, f in enumerate(formulas):
+            lt, rt = (parse(x) for x in f.split(" = "))
+            vs = sorted(set(_VAR.findall(f)))
+            a = n ** len(vs)
+            grid = np.indices((n,) * len(vs)).reshape(len(vs), a).astype(np.int8)
+            env = {v: grid[j] for j, v in enumerate(vs)}
+
+            def ev(t):
+                if isinstance(t, Var):
+                    return np.broadcast_to(env[t.name], (k, a))
+                return tabs[kk, ev(t.args[0]), ev(t.args[1])]
+            out[i] = (ev(lt) == ev(rt)).all(1)
+        cols.append(out)
+    return np.concatenate(cols, 1)
+
+
+def select_pairs(M, cls, sat, n_pairs: int, per_pair: int, seed: int,
+                 sizes, formulas) -> list[dict]:
+    """The pairs tier: E1 and E2 => E3 where neither law implies E3 alone.
+    E1 and E2 are incomparable laws, not degenerate, satisfied together by
+    some magma of the filter set (so their conjunction is not x = y); E3 is
+    not x = x and no filter magma satisfies E1 and E2 but not E3. Truth is
+    unknown: only a proof settles it."""
+    import numpy as np
+    n = len(M)
+    deg_cls, triv_cls = cls[EQ_X_EQ_Y - 1], cls[EQ_X_EQ_X - 1]
+    base = [i for i in range(n) if cls[i] not in (deg_cls, triv_cls)]
+    not_sat = ~sat
+    usable_concl = np.array([cls[i] not in (deg_cls, triv_cls) for i in range(n)])
+    rng = np.random.default_rng(seed)
+    rows, seen, tries = [], set(), 0
+    while len(seen) < n_pairs:
+        tries += 1
+        if tries > 200 * n_pairs:
+            break
+        a, b = sorted(int(x) for x in rng.choice(base, 2, replace=False))
+        if (a, b) in seen or M[a, b] > 0 or M[b, a] > 0:
+            continue
+        both = sat[a] & sat[b]
+        if not both.any():
+            continue
+        refuted = not_sat[:, both].any(1)
+        cand = np.nonzero(usable_concl & (M[a] <= 0) & (M[b] <= 0) & ~refuted)[0]
+        cand = cand[(cand != a) & (cand != b)]
+        if len(cand) == 0:
+            continue
+        seen.add((a, b))
+        for c in rng.choice(cand, min(per_pair, len(cand)), replace=False):
+            c = int(c)
+            rows.append({"problem": problem_name(a + 1, c + 1, b + 1), "hyp": a + 1,
+                         "hyp2": b + 1, "concl": c + 1, "tier": "pairs", "code": None,
+                         "hyp_class": int(cls[a]), "hyp2_class": int(cls[b]),
+                         "concl_class": int(cls[c]), "hyp_size": int(sizes[a]),
+                         "hyp2_size": int(sizes[b]), "concl_size": int(sizes[c]),
+                         "instance": False, "n_candidates": int(len(cand)),
+                         "magmas_satisfying_both": int(both.sum())})
+    return rows
 
 
 # ------------------------------------------------------------------- build
@@ -372,12 +485,30 @@ def cmd_build(args) -> None:
                          vampire_hard=(read_known(args.vampire_hard)
                                        if args.vampire_hard else None))
     cls = equivalence_classes(M > 0)
+    if args.pairs:
+        import numpy as np
+        formulas = [laws[i]["formula"] for i in range(1, n + 1)]
+        if args.sat_cache and os.path.exists(args.sat_cache):
+            sat = np.load(args.sat_cache)
+        else:
+            print(f"satisfaction table: {n} laws x magmas of size 2, 3 and "
+                  f"{args.size4} random of size 4 (a few minutes)", file=sys.stderr)
+            sat = satisfaction(formulas, filter_magmas(args.size4, args.pairs_seed))
+            if args.sat_cache:
+                np.save(args.sat_cache, sat)
+        pair_rows = select_pairs(M, cls, sat, args.pairs, args.pairs_per, args.pairs_seed,
+                                 [laws[i]["size"] for i in range(1, n + 1)], formulas)
+        rows += pair_rows
+        stats["tiers"]["pairs"] = len(pair_rows)
+        stats["pairs"] = {"hypothesis_pairs": len({(r["hyp"], r["hyp2"]) for r in pair_rows}),
+                          "per_pair": args.pairs_per, "seed": args.pairs_seed,
+                          "filter_magmas": int(sat.shape[1]), "size4": args.size4}
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "laws.tsv"), "w") as f:
         f.write("id\tclass\tsize\tformula\n")
         for i in range(1, n + 1):
             f.write(f"{i}\t{cls[i - 1]}\t{laws[i]['size']}\t{laws[i]['formula']}\n")
-    rows.sort(key=lambda r: (TIERS.index(r["tier"]), r["hyp"], r["concl"]))
+    rows.sort(key=lambda r: (TIERS.index(r["tier"]), r["hyp"], r.get("hyp2") or 0, r["concl"]))
     with gzip.open(os.path.join(args.out_dir, "implications.jsonl.gz"), "wt") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
@@ -544,6 +675,15 @@ def main() -> None:
     b.add_argument("--known", default="",
                    help="TSV of pairs ETP proved on their own (hyp, concl, source, "
                         "vampire_steps): the known tier")
+    b.add_argument("--pairs", type=int, default=0,
+                   help="number of hypothesis pairs E1, E2 for the pairs tier (0 for none)")
+    b.add_argument("--pairs-per", type=int, default=5,
+                   help="conclusions per hypothesis pair (at most)")
+    b.add_argument("--pairs-seed", type=int, default=0)
+    b.add_argument("--size4", type=int, default=10_000,
+                   help="random magmas of size 4 in the refutation filter")
+    b.add_argument("--sat-cache", default="",
+                   help="cache file (.npy) for the law x magma satisfaction table")
     b.add_argument("--vampire-hard", default="",
                    help="TSV of pairs Vampire proved only in its 600 s run (hyp, concl, "
                         "source, vampire_steps, vampire_time): the vampire_hard tier")
