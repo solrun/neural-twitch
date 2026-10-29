@@ -245,9 +245,32 @@ ETP set).
 
 **Pairs triage** (19,884 problems, same settings): **16,481 trivial, none in
 the label band, 3,403 unproved** under both settings within 1M CPs / 300 s.
-Twee either finds a proof almost at once or none at all. The unproved ones
-are presumably false (they are what the weak filter lets through), not
-checked yet; they are of unknown status, not hard theorems.
+Twee either finds a proof almost at once or none at all.
+
+How the unproved runs ended (`budget` split by CP count: under 1M CPs means
+Twee **saturated**, i.e. completed the rewrite system without the goal):
+1,809 problems saturated under some setting (median 25 CPs, max 38,173);
+1,500 hit the 300 s cap under both settings; 94 hit the 1M CP limit under at
+least one.
+
+**Countermodel search** (`nt.etp fmb`: Vampire 5.0 finite model builder,
+60 s per problem, all 3,403 unproved): **3,285 false** (countermodels of size
+4: 2,297, 5: 599, 6: 141, 7: 57, 8: 37, 9: 64, 10: 90), 118 unknown, none
+true. Against Twee's endings:
+
+| Twee | false | true | unknown |
+|---|---|---|---|
+| saturated | 1,805 | 0 | 4 |
+| open | 1,480 | 0 | 114 |
+
+So a Twee saturation does mean a false problem here (no saturated problem
+is true; the 4 unknown just have no countermodel found in 60 s). Countermodels
+on a test sample were checked independently (`nt.etp.satisfaction`: both
+hypotheses hold, the conclusion fails).
+
+**Pairs tier in total:** 16,481 true (all trivial for Twee), 3,285 false,
+118 undecided (4 saturated, so presumably false; 114 open). No problem in
+the label band.
 
 ## All true implications (2026-10-29)
 
@@ -276,8 +299,8 @@ true ETP implication needs even 10k CPs, and 98.5% need fewer than 10.
 runs; total wall time about 59 hours). Only four need more than 10k CPs, all
 with hypothesis 2923 (the dual of 650) and only with goal flattening on
 (about 11,500 CPs; 65 without). Two-law hypotheses (pairs tier) do not
-change this: 16,481 of 19,884 trivial, none in between, the rest unproved
-and presumably false. Below 10k CPs hint ratios mean little
+change this: 16,481 of 19,884 true and trivial, none in between, 3,285
+shown false by countermodels, 118 undecided. Below 10k CPs hint ratios mean little
 (DEFAULT_MIN_CPS), so ETP gives neither labels nor hard problems for Twee,
 and cannot serve as the leave-domain-out test as planned. This matches the
 ETP paper and Janota: the positive implications are easy for ATPs, the
