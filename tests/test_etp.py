@@ -59,3 +59,23 @@ def test_triage_bucket():
     assert etp.triage_bucket([p(True, 10), t(False)], 10_000) == "label"
     assert etp.triage_bucket([p(True, 50_000), p(False, 20)], 10_000) == "label"
     assert etp.triage_bucket([t(True), t(False)], 10_000) == "hard"
+
+
+def test_is_instance():
+    assert etp.is_instance("X = m(X, X)", "m(Y, Y) = Y")                  # flipped
+    assert etp.is_instance("m(X, Y) = m(Y, X)", "m(m(X, X), Y) = m(Y, m(X, X))")
+    assert not etp.is_instance("m(X, Y) = m(Y, X)", "m(X, Y) = m(X, Y)")   # Y would be both
+    assert not etp.is_instance("X = m(X, X)", "X = m(Y, X)")
+
+
+def test_random_tier():
+    M = toy_matrix()
+    formulas = ["X = X", "X = Y", "X = m(X, X)", "m(X, X) = X", "X = m(X, m(X, X))",
+                "X = m(Y, Z)", "m(X, Y) = m(Y, X)"]
+    rows, stats = etp.select(M, [0, 0, 1, 1, 2, 1, 2], formulas, n_random=50, seed=1)
+    rnd = [r for r in rows if r["tier"] == "random"]
+    other = {(r["hyp"], r["concl"]) for r in rows if r["tier"] != "random"}
+    assert rnd and all(not r["instance"] for r in rnd)
+    assert all((r["hyp"], r["concl"]) not in other for r in rnd)
+    assert all(r["hyp"] not in (2, 6) and r["concl"] != 1 for r in rnd)
+    assert all(r["instance"] is not None for r in rows)

@@ -28,7 +28,7 @@ Goal: learn to generate Twitch-style abstractions (term patterns given to Twee a
 
 - **Hindsight subproblems.** TPTP UEQ proofs give lemmas over the axiom signature, which become new goals: 1,332 subproblems from 269 proofs.
 - **Stitch sets** for the 823 hard enough to matter; labels for 497. They behave like the original problems, so the labels are pooled.
-- **ETP.** The 1,027 ETP problems in Twitch's repo are hard (the sampled ones time out), so they are not used for labels yet.
+- **ETP** (`etp.md`). The 1,027 ETP problems in Twitch's repo are all false implications according to ETP's final matrix, which is why they timed out. A new selection of true implications (`nt.etp`, `data/etp/`) is far too easy so far: the first 8,269 problems are all proved, median 2 CPs, max 6,918. The closure tier and a 100k random sample are being triaged for harder ones.
 
 **New TPTP problems (`data/tptp_extra/`, branch `tptp-extra-ueq`).**
 - TPTP v9.2.1 has 1,143 unsatisfiable UEQ problems. Twitch's `filter.py` kept only nine domains (ALG, BOO, COL, GRP, LAT, LCL, REL, RNG, ROB), giving its 1,041. The other 100 are listed in `new_ueq_unsat.tsv`; 83 with fewer than 1,000 clauses are copied (the 17 left out are mostly CSR/SUMO problems with up to 44k clauses).
@@ -217,7 +217,7 @@ First results (`data/dataset`). hit@k is the share of examples where a known hel
 - **MVA weight in training:** one axiom group is about 10% of train; try per-group down-weighting, or a run without MVA.
 - **Diversity in reranking:** a diversity penalty (e.g. no two candidates with the same shape) might close rerank's gap to sampling at k=5.
 - **Better generalisation:** smaller model or stronger name dropout, more data (more hindsight subproblems), or train the scorer against near-miss candidates instead of only labelled singles.
-- **ETP** solve rate with the generated sets.
+- **ETP:** find hard true implications (closure tier, random tier; `etp.md`), then label them and measure the solve rate with generated sets.
 - **Possible LLM comparison**, using the text form of the dataset (`text.jsonl`).
 - **Label backup:** commit the label files to git as a backup.
 - **Citation:** on the AITP 2026 programme, *Neural Conjecturing for Saturation Theorem Provers* is by Jakubův, Olšák, Suda and Urban; check which paper and author list the "Chvalovský/Suda/Urban" references mean.

@@ -9,13 +9,24 @@
   "degenerate": 1495,
   "hasse": 4721,
   "closure": 20894,
-  "equiv": 2053
+  "equiv": 2053,
+  "random": 100000
  },
  "explicit_by_tier": {
   "degenerate": 227,
   "hasse": 4721,
   "closure": 158,
-  "equiv": 458
+  "equiv": 458,
+  "random": 98
  },
- "source": "export_raw_implications_10_23_2026.csv"
+ "instance_by_tier": {
+  "closure": 2939,
+  "hasse": 3169,
+  "equiv": 176
+ },
+ "source": "export_raw_implications_10_23_2026.csv",
+ "random": {
+  "size": 100000,
+  "seed": 0
+ }
 }

@@ -34,14 +34,24 @@ equivalent when each implies the other):
   equiv       within each class of two or more laws, a cycle a1 => a2 =>
               ... => ak => a1 (laws sorted by size), so every law is both a
               hypothesis and a conclusion once.
+  random      a fixed random sample of the true implications themselves (not
+              one per class pair), hypothesis not degenerate, leaving out
+              pairs already selected and pure instances (below). The first
+              triage showed the class representatives to be almost all
+              trivial for Twee (median 2 CPs, max 6,918): choosing the
+              smallest pair favours instances. Hard problems have to be found
+              by running many cheap ones.
 
-Implications into x = x (equation 1) are left out. For a pair of classes, the
+Every row has `instance`: the conclusion is a substitution instance of the
+hypothesis (either orientation), so one rewrite proves it. Implications into
+x = x (equation 1) are left out. For a pair of classes, the
 representative laws are an explicitly proved pair if there is one, otherwise
 the pair with the fewest operations in total (lowest numbers on ties).
 
   # once, from the ETP files (needs numpy and pandas)
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
-      --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp
+      --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp \\
+      --random 100000
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
@@ -68,7 +78,7 @@ import re
 import sys
 import tarfile
 
-TIERS = ("degenerate", "hasse", "closure", "equiv")
+TIERS = ("degenerate", "hasse", "closure", "equiv", "random")
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
          2: "explicit_conjecture_true", -2: "explicit_conjecture_false",
@@ -181,8 +191,32 @@ def equivalence_classes(T) -> list[int]:
     return cls
 
 
-def select(M, sizes) -> tuple[list[dict], dict]:
-    """The tiered selection described in the module docstring."""
+def _match(p, t, sub: dict) -> bool:
+    from nt.terms import Var
+    if isinstance(p, Var):
+        if p.name in sub:
+            return sub[p.name] == t
+        sub[p.name] = t
+        return True
+    return (not isinstance(t, Var) and t.fn == p.fn and len(t.args) == len(p.args)
+            and all(_match(a, b, sub) for a, b in zip(p.args, t.args)))
+
+
+def is_instance(hyp: str, concl: str) -> bool:
+    """Is the equation concl ('l = r') a substitution instance of hyp,
+    in either orientation of each?"""
+    from nt.terms import parse
+    hl, hr = (parse(x) for x in hyp.split(" = "))
+    cl, cr = (parse(x) for x in concl.split(" = "))
+    return any(_match(a, x, s) and _match(b, y, s)
+               for a, b in ((hl, hr), (hr, hl)) for x, y in ((cl, cr), (cr, cl))
+               for s in [{}])
+
+
+def select(M, sizes, formulas=None, n_random: int = 0,
+           seed: int = 0) -> tuple[list[dict], dict]:
+    """The tiered selection described in the module docstring. formulas
+    (0-based list of 'l = r') is needed for `instance` and the random tier."""
     import numpy as np
     import pandas as pd
     n = len(M)
@@ -195,11 +229,14 @@ def select(M, sizes) -> tuple[list[dict], dict]:
     deg_cls, triv_cls = cls[EQ_X_EQ_Y - 1], cls[EQ_X_EQ_X - 1]
     rows = []
 
+    def inst(a, b):
+        return None if formulas is None else is_instance(formulas[a], formulas[b])
+
     def row(a, b, tier):        # a, b 0-based
         return {"problem": problem_name(a + 1, b + 1), "hyp": int(a + 1), "concl": int(b + 1),
                 "tier": tier, "code": int(M[a, b]), "hyp_class": int(cls[a]),
                 "concl_class": int(cls[b]), "hyp_size": int(sizes[a]),
-                "concl_size": int(sizes[b])}
+                "concl_size": int(sizes[b]), "instance": inst(a, b)}
 
     # degenerate: law => x = y
     for a in np.nonzero(cls == deg_cls)[0]:
@@ -234,13 +271,34 @@ def select(M, sizes) -> tuple[list[dict], dict]:
             for x, y in zip(ms, ms[1:] + ms[:1]):
                 rows.append(row(x, y, "equiv"))
 
+    # random sample of the true pairs with a non-degenerate hypothesis
+    if n_random:
+        if formulas is None:
+            raise ValueError("the random tier needs formulas")
+        a_idx, b_idx = np.nonzero(T)
+        keep = (a_idx != b_idx) & (cls[a_idx] != deg_cls) & (cls[b_idx] != triv_cls)
+        a_idx, b_idx = a_idx[keep], b_idx[keep]
+        taken = {(r["hyp"] - 1, r["concl"] - 1) for r in rows}
+        order = np.random.default_rng(seed).permutation(len(a_idx))
+        added = 0
+        for i in order:
+            a, b = int(a_idx[i]), int(b_idx[i])
+            if (a, b) in taken or is_instance(formulas[a], formulas[b]):
+                continue
+            rows.append(row(a, b, "random"))
+            added += 1
+            if added == n_random:
+                break
+
     assert all(M[r["hyp"] - 1, r["concl"] - 1] > 0 for r in rows)
     stats = {"laws": n, "classes": k, "degenerate_laws": int((cls == deg_cls).sum()),
              "true_offdiag": int(T.sum() - n), "explicit_true": int((M == 4).sum()),
              "class_implications": int(C.sum()),
              "tiers": dict(collections.Counter(r["tier"] for r in rows)),
              "explicit_by_tier": dict(collections.Counter(r["tier"] for r in rows
-                                                          if r["code"] == 4))}
+                                                          if r["code"] == 4)),
+             "instance_by_tier": dict(collections.Counter(r["tier"] for r in rows
+                                                          if r["instance"]))}
     return rows, stats
 
 
@@ -259,7 +317,9 @@ def cmd_build(args) -> None:
             raise SystemExit(f"axiom and conjecture files for equation {i} disagree")
         skolemize(formula)      # every variable has a constant
         laws[i] = {"id": i, "size": law_size(formula), "formula": formula}
-    rows, stats = select(M, [laws[i]["size"] for i in range(1, n + 1)])
+    rows, stats = select(M, [laws[i]["size"] for i in range(1, n + 1)],
+                         [laws[i]["formula"] for i in range(1, n + 1)],
+                         n_random=args.random, seed=args.seed)
     cls = equivalence_classes(M > 0)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "laws.tsv"), "w") as f:
@@ -271,6 +331,7 @@ def cmd_build(args) -> None:
         for r in rows:
             f.write(json.dumps(r) + "\n")
     stats["source"] = os.path.basename(args.implications)
+    stats["random"] = {"size": args.random, "seed": args.seed}
     with open(os.path.join(args.out_dir, "stats.json"), "w") as f:
         json.dump(stats, f, indent=1)
     print(json.dumps(stats, indent=1))
@@ -396,6 +457,9 @@ def main() -> None:
     b.add_argument("--conjectures", required=True,
                    help="directory or .tar.gz of conjectures/<n>.p")
     b.add_argument("--out-dir", default="data/etp")
+    b.add_argument("--random", type=int, default=100_000,
+                   help="size of the random tier (0 for none)")
+    b.add_argument("--seed", type=int, default=0, help="seed of the random tier")
     w = sub.add_parser("write", help="problem files and a manifest for nt.expand base")
     w.add_argument("data_dir", nargs="?", default="data/etp")
     w.add_argument("--out-dir", required=True)

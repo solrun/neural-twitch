@@ -4,6 +4,7 @@
 #   mkdir -p logs out/etp
 #   sbatch --array=0-15 slurm/etp_triage.sbatch
 #   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
+# (outputs are out/etp/<NAME>_<K>.jsonl; NAME defaults to triage_<tiers>)
 # With NT_STORE set (slurm/vera.env), problems go to $NT_STORE/etp/problems
 # and proofs to $NT_STORE/etp/proofs, so the label band needs no second run
 # (`nt.expand abstract` reads the proofs directly). Without it, each shard's
@@ -14,8 +15,13 @@
 #              --export splits at commas), e.g. TIERS=degenerate:hasse:equiv; default all
 #   MAX_CPS    CP budget per run (default 1000000)
 #   WALL       wall cap in seconds per run (default 300)
-#   NAME       output prefix (default triage)
+#   NAME       output prefix (default triage_<tiers>, e.g. triage_closure, so runs
+#              of different tiers don't overwrite each other)
 #   PROOFS     1 to keep proofs, 0 not to (default 1 with NT_STORE, else 0)
+#   PROOF_MIN_CPS  keep only proofs needing at least this many CPs (default 10000,
+#              nt.expand's DEFAULT_MIN_CPS: cheaper proofs are never labelled)
+#   SAMPLE     random N problems of the chosen tiers (fixed by seed 0), e.g. a
+#              first look at the 100k random tier
 # After an interruption, rerun the unfinished shards with the same SHARDS and
 # --resume, which keeps finished runs:
 #   sbatch --array=2,5 --export=ALL,SHARDS=16,EXTRA_ARGS=--resume slurm/etp_triage.sbatch
@@ -32,7 +38,8 @@ source slurm/vera.env
 
 K=$SLURM_ARRAY_TASK_ID
 N=${SHARDS:-$SLURM_ARRAY_TASK_COUNT}
-NAME=${NAME:-triage}
+TAG=${TIERS:-all}
+NAME=${NAME:-triage_${TAG//[:,+ ]/-}}${SAMPLE:+_s$SAMPLE}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/etp.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
@@ -45,12 +52,13 @@ else
 fi
 if [ "$PROOFS" = 1 ]; then
     [ -n "${NT_STORE:-}" ] || { echo "PROOFS=1 needs NT_STORE (home quota)" >&2; exit 1; }
-    PROOF_ARGS=(--proof-dir "$NT_STORE/etp/proofs")
+    PROOF_ARGS=(--proof-dir "$NT_STORE/etp/proofs" --proof-min-cps "${PROOF_MIN_CPS:-10000}")
 else
     PROOF_ARGS=(--no-proofs)
 fi
 
-python -m nt.etp write data/etp ${TIERS:+--tiers "$TIERS"} --shard "$K/$N" \
+python -m nt.etp write data/etp ${TIERS:+--tiers "$TIERS"} ${SAMPLE:+--sample "$SAMPLE"} \
+    --shard "$K/$N" \
     --out-dir "$PROBLEMS" --manifest "$WORK/manifest.jsonl"
 # shellcheck disable=SC2086  # EXTRA_ARGS is word-split on purpose
 python -m nt.expand base "$WORK/manifest.jsonl" --out "out/etp/${NAME}_${K}.jsonl" \

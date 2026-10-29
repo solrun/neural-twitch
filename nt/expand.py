@@ -107,13 +107,18 @@ def read_rows(paths: list[str]) -> list[dict]:
 
 # -------------------------------------------------------------------- base
 
-def _base_job(prob, flatten, proof_dir, wall_timeout, schedule, max_cps=UNLIMITED):
-    """proof_dir "" runs without keeping proofs (triage)."""
+def _base_job(prob, flatten, proof_dir, wall_timeout, schedule, max_cps=UNLIMITED,
+              proof_min_cps=0):
+    """proof_dir "" runs without keeping proofs (triage); proofs found with
+    fewer than proof_min_cps CPs are deleted again."""
     tag = "flat" if flatten else "noflat"
     proof = (os.path.join(proof_dir, prob["domain"], f"{prob['problem']}_{tag}.txt.gz")
              if proof_dir else None)
     r = twee.run(prob["path"], [], Setting(flatten_goal=flatten), max_cps, wall_timeout,
                  schedule=schedule, proof_path=proof)
+    if proof and r.status == "proved" and r.cps < proof_min_cps:
+        os.unlink(proof)
+        proof = None
     return {**prob, "flatten": flatten, "rep": 0, "schedule": schedule, **r.to_dict(),
             "proof": proof if r.status == "proved" else None}
 
@@ -173,7 +178,7 @@ def cmd_base(args) -> None:
     with open(args.out, mode) as out, ProcessPoolExecutor(args.workers) as ex:
         proof_dir = "" if args.no_proofs else args.proof_dir
         futs = [ex.submit(_base_job, p, f, proof_dir, args.wall_timeout, args.schedule,
-                          args.max_cps) for p, f in jobs]
+                          args.max_cps, args.proof_min_cps) for p, f in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             counts[r["status"]] += 1
@@ -434,6 +439,8 @@ def main() -> None:
                    help="CP budget (default unlimited); runs that hit it end as 'budget'")
     b.add_argument("--no-proofs", action="store_true",
                    help="don't keep proofs (triage: avoids one file per proved run)")
+    b.add_argument("--proof-min-cps", type=int, default=0,
+                   help="keep only proofs that needed at least this many CPs")
     b.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE)
     b.add_argument("--workers", type=int, default=twee.default_workers())
     b.add_argument("--limit", type=int, default=0, help="first N problems by name")
