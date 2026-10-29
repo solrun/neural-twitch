@@ -1,6 +1,11 @@
 {
  "laws": 4694,
- "classes": 1415,
+ "classes": {
+  "hyp": "4614",
+  "concl": "4627",
+  "source": "vampire",
+  "vampire_steps": "10"
+ },
  "degenerate_laws": 1496,
  "true_offdiag": 8173585,
  "explicit_true": 10657,
@@ -10,19 +15,22 @@
   "hasse": 4721,
   "closure": 20894,
   "equiv": 2053,
-  "random": 100000
+  "random": 100000,
+  "known": 550
  },
  "explicit_by_tier": {
   "degenerate": 227,
   "hasse": 4721,
   "closure": 158,
   "equiv": 458,
-  "random": 98
+  "random": 98,
+  "known": 547
  },
  "instance_by_tier": {
   "closure": 2939,
   "hasse": 3169,
-  "equiv": 176
+  "equiv": 176,
+  "known": 41
  },
  "source": "export_raw_implications_10_23_2026.csv",
  "random": {

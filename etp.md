@@ -34,6 +34,7 @@ transitive reduction has 4,721 edges, every one with an explicit ETP proof.
 | closure | 20,894 | one per other pair of classes P => Q |
 | equiv | 2,053 | a cycle a1 => a2 => … => a1 within each class |
 | random | 100,000 | random true pairs (seed 0), hypothesis not degenerate, no pure instances, none of the above |
+| known | 550 | pairs ETP proved on their own (`data/etp/known.tsv`, from ETP commit 2f49bda), not in the tiers above: 506 from Vampire, 42 from `Subgraph.lean`, 1571 => 3167 and 4656 |
 
 For a class pair, the representative is an explicitly proved pair if there
 is one, otherwise the pair with the fewest operations. Problems are CNF in
@@ -97,8 +98,11 @@ hard problem.
 - **By hand.** Outside `Subgraph.lean` (mostly about x = y), the hand-written
   positive results are Tarski's axiom 543 => 11, 16, 40, 3823, 4369 (all in
   our closure tier, all trivial), 37 => 2 and 514 => 2 (degenerate tier,
-  trivial) and 1571 => 3167, 4656 (not run). `ManuallyProved/` is mostly
-  refutations.
+  trivial) and 1571 => 3167, 4656 (now in the known tier). `ManuallyProved/`
+  is mostly refutations.
+- The **known tier** (2026-10-29) holds the 550 of these 1,613 pairs not
+  already selected, among them the second and third longest Vampire proofs,
+  3957 => 3971 (133 steps) and 3569 => 3957 (105), and 650 => 448 (65).
 
 ## Conclusion
 

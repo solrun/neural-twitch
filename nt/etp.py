@@ -41,6 +41,11 @@ equivalent when each implies the other):
               trivial for Twee (median 2 CPs, max 6,918): choosing the
               smallest pair favours instances. Hard problems have to be found
               by running many cheap ones.
+  known       the true implications ETP gave a proof of their own (build
+              --known data/etp/known.tsv): all of Generated/VampireProven
+              (with Vampire's proof length), Subgraph.lean, Tarski's axiom 543,
+              FreeMagmaImplications and ManuallyProved/Equation1571, except
+              pairs already in another tier (1,063 of the 1,613).
 
 Every row has `instance`: the conclusion is a substitution instance of the
 hypothesis (either orientation), so one rewrite proves it. Implications into
@@ -51,7 +56,7 @@ the pair with the fewest operations in total (lowest numbers on ties).
   # once, from the ETP files (needs numpy and pandas)
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
       --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp \\
-      --random 100000
+      --random 100000 --known data/etp/known.tsv
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
@@ -78,7 +83,7 @@ import re
 import sys
 import tarfile
 
-TIERS = ("degenerate", "hasse", "closure", "equiv", "random")
+TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known")
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
          2: "explicit_conjecture_true", -2: "explicit_conjecture_false",
@@ -213,8 +218,14 @@ def is_instance(hyp: str, concl: str) -> bool:
                for s in [{}])
 
 
-def select(M, sizes, formulas=None, n_random: int = 0,
-           seed: int = 0) -> tuple[list[dict], dict]:
+def read_known(path: str) -> list[dict]:
+    with open(path) as f:
+        header = f.readline().rstrip("\n").split("\t")
+        return [dict(zip(header, line.rstrip("\n").split("\t"))) for line in f if line.strip()]
+
+
+def select(M, sizes, formulas=None, n_random: int = 0, seed: int = 0,
+           known: list[dict] | None = None) -> tuple[list[dict], dict]:
     """The tiered selection described in the module docstring. formulas
     (0-based list of 'l = r') is needed for `instance` and the random tier."""
     import numpy as np
@@ -290,6 +301,26 @@ def select(M, sizes, formulas=None, n_random: int = 0,
             if added == n_random:
                 break
 
+    # pairs ETP proved on their own, not already in another tier
+    false_known = []
+    if known:
+        taken = {(r["hyp"], r["concl"]) for r in rows}
+        for k in known:
+            a, b = int(k["hyp"]), int(k["concl"])
+            if M[a - 1, b - 1] <= 0:
+                false_known.append((a, b))
+                continue
+            if (a, b) in taken:
+                continue
+            taken.add((a, b))
+            r = row(a - 1, b - 1, "known")
+            r["source"] = k["source"]
+            r["vampire_steps"] = int(k["vampire_steps"]) if k.get("vampire_steps") else None
+            rows.append(r)
+    if false_known:
+        print(f"warning: {len(false_known)} known pairs are not true in the matrix: "
+              f"{false_known[:10]}", file=sys.stderr)
+
     assert all(M[r["hyp"] - 1, r["concl"] - 1] > 0 for r in rows)
     stats = {"laws": n, "classes": k, "degenerate_laws": int((cls == deg_cls).sum()),
              "true_offdiag": int(T.sum() - n), "explicit_true": int((M == 4).sum()),
@@ -319,7 +350,8 @@ def cmd_build(args) -> None:
         laws[i] = {"id": i, "size": law_size(formula), "formula": formula}
     rows, stats = select(M, [laws[i]["size"] for i in range(1, n + 1)],
                          [laws[i]["formula"] for i in range(1, n + 1)],
-                         n_random=args.random, seed=args.seed)
+                         n_random=args.random, seed=args.seed,
+                         known=read_known(args.known) if args.known else None)
     cls = equivalence_classes(M > 0)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "laws.tsv"), "w") as f:
@@ -460,6 +492,9 @@ def main() -> None:
     b.add_argument("--random", type=int, default=100_000,
                    help="size of the random tier (0 for none)")
     b.add_argument("--seed", type=int, default=0, help="seed of the random tier")
+    b.add_argument("--known", default="",
+                   help="TSV of pairs ETP proved on their own (hyp, concl, source, "
+                        "vampire_steps): the known tier")
     w = sub.add_parser("write", help="problem files and a manifest for nt.expand base")
     w.add_argument("data_dir", nargs="?", default="data/etp")
     w.add_argument("--out-dir", required=True)

@@ -79,3 +79,16 @@ def test_random_tier():
     assert all((r["hyp"], r["concl"]) not in other for r in rnd)
     assert all(r["hyp"] not in (2, 6) and r["concl"] != 1 for r in rnd)
     assert all(r["instance"] is not None for r in rows)
+
+
+def test_known_tier():
+    M = toy_matrix()
+    formulas = ["X = X", "X = Y", "X = m(X, X)", "m(X, X) = X", "X = m(X, m(X, X))",
+                "X = m(Y, Z)", "m(X, Y) = m(Y, X)"]
+    known = [{"hyp": "3", "concl": "5", "source": "vampire", "vampire_steps": "12"},  # hasse
+             {"hyp": "4", "concl": "5", "source": "vampire", "vampire_steps": "40"},
+             {"hyp": "7", "concl": "3", "source": "manual", "vampire_steps": ""}]    # false
+    rows, _ = etp.select(M, [0, 0, 1, 1, 2, 1, 2], formulas, known=known)
+    k = [r for r in rows if r["tier"] == "known"]
+    assert [(r["hyp"], r["concl"], r["source"], r["vampire_steps"]) for r in k] == \
+        [(4, 5, "vampire", 40)]
