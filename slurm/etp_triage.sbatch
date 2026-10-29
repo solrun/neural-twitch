@@ -21,6 +21,8 @@
 #   PROOFS     1 to keep proofs, 0 not to (default 1 with NT_STORE, else 0)
 #   PROOF_MIN_CPS  keep only proofs needing at least this many CPs (default 10000,
 #              nt.expand's DEFAULT_MIN_CPS: cheaper proofs are never labelled)
+#   COMPACT    1 to turn the output into out/etp/<NAME>_<K>.tsv.gz (nt.etp compact)
+#              and drop the .jsonl; default 1 for TIERS=all (16M runs), else 0
 #   SAMPLE     random N problems of the chosen tiers (fixed by seed 0), e.g. a
 #              first look at the 100k random tier
 # After an interruption, rerun the unfinished shards with the same SHARDS and
@@ -65,4 +67,7 @@ python -m nt.expand base "$WORK/manifest.jsonl" --out "out/etp/${NAME}_${K}.json
     --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}
 if [ -n "${NT_STORE:-}" ]; then
     python -m nt.etp keep "out/etp/${NAME}_${K}.jsonl" --to "$NT_STORE/etp/problems"
+fi
+if [ "${COMPACT:-$([ "${TIERS:-}" = all ] && echo 1 || echo 0)}" = 1 ]; then
+    python -m nt.etp compact "out/etp/${NAME}_${K}.jsonl" --remove
 fi

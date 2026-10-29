@@ -154,3 +154,35 @@ def test_select_pairs_filters():
         assert M[a, c] <= 0 and M[b, c] <= 0 and c not in (0, 1)
     # 3 and 4 => 5 is true, so no magma refutes it and it must be a candidate
     assert any((r["hyp"], r["hyp2"], r["concl"]) == (3, 4, 5) for r in rows)
+
+
+def test_bits_all_rows_compact_summarize(tmp_path):
+    import gzip, json, types
+    M = toy_matrix()                                  # 7 laws
+    etp.write_bits(M, str(tmp_path / etp.BITS_FILE))
+    with open(tmp_path / "laws.tsv", "w") as f:
+        f.write("id\tclass\tsize\tformula\n")
+        for i in range(1, 8):
+            f.write(f"{i}\t{i}\t1\tX = X\n")
+    laws = etp.load_laws(str(tmp_path / "laws.tsv"))
+    rows = list(etp.all_true_rows(str(tmp_path), laws))
+    want = {(a + 1, b + 1) for a in range(7) for b in range(7) if a != b and M[a, b] > 0}
+    assert {(r["hyp"], r["concl"]) for r in rows} == want
+    assert {(r["hyp"], r["concl"]) for r in rows if r["code"] == 4} == {(3, 5)}
+    runs = tmp_path / "t_0.jsonl"
+    with open(runs, "w") as f:
+        for r in rows:
+            for flat in (True, False):
+                cps = 20_000 if (r["hyp"], r["concl"], flat) == (3, 5, True) else 5
+                f.write(json.dumps({"problem": r["problem"], "path": "/x", "flatten": flat,
+                                    "status": "proved", "cps": cps, "wall": 0.0123456,
+                                    "cpu_seconds": 0.01, "allocated_bytes": 1,
+                                    "proof": None}) + "\n")
+    etp.cmd_compact(types.SimpleNamespace(runs=[str(runs)], remove=True))
+    assert not runs.exists()
+    with gzip.open(tmp_path / "t_0.tsv.gz", "rt") as f:
+        assert "\t0.01235\t" in f.read()
+    etp.cmd_summarize(types.SimpleNamespace(
+        runs=[str(tmp_path / "t_0.tsv.gz")], min_cps=10_000, show=5, count_problems=True,
+        write_lists=str(tmp_path / "lists")))
+    assert open(tmp_path / "lists" / "label.txt").read() == "ETP-3_5\n"

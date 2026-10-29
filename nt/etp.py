@@ -52,6 +52,9 @@ equivalent when each implies the other):
               data/etp/vampire_hard.tsv, with Vampire's time): 2,390 pairs
               with only four hypotheses, 650 and its dual 2923 (1,192 each),
               450 and its dual 3089 (3 each); the 2,166 not in another tier.
+  all         every true implication a => b with a != b (8,173,585), read
+              from data/etp/matrix.bits.gz rather than the selection file;
+              `write --tiers all` only. For the record, not for labels.
   pairs       two laws as hypotheses, E1 and E2 => E3, where neither law
               implies E3 alone (build --pairs N --pairs-per K): E1, E2
               incomparable and not degenerate, some filter magma satisfies
@@ -102,7 +105,8 @@ import sys
 import tarfile
 
 TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known", "vampire_hard",
-         "pairs")
+         "pairs", "all")
+BITS_FILE = "matrix.bits.gz"   # true and explicit bit planes of the matrix, row-major
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
          2: "explicit_conjecture_true", -2: "explicit_conjecture_false",
@@ -301,6 +305,48 @@ def select_pairs(M, cls, sat, n_pairs: int, per_pair: int, seed: int,
                          "instance": False, "n_candidates": int(len(cand)),
                          "magmas_satisfying_both": int(both.sum())})
     return rows
+
+
+# ------------------------------------------------------------- bit matrix
+
+def write_bits(M, path: str) -> None:
+    """Two bit planes (true, explicitly proved) of the n x n matrix, row-major,
+    gzipped. Small (about 3 MB) and readable without numpy."""
+    import numpy as np
+    with gzip.open(path, "wb") as f:
+        f.write(len(M).to_bytes(4, "little"))
+        f.write(np.packbits((M > 0).ravel()).tobytes())
+        f.write(np.packbits((M == 4).ravel()).tobytes())
+
+
+def read_bits(path: str) -> tuple[int, bytes, bytes]:
+    with gzip.open(path, "rb") as f:
+        data = f.read()
+    n = int.from_bytes(data[:4], "little")
+    k = (n * n + 7) // 8
+    return n, data[4:4 + k], data[4 + k:4 + 2 * k]
+
+
+def _bit(plane: bytes, i: int) -> bool:
+    return bool(plane[i >> 3] >> (7 - (i & 7)) & 1)
+
+
+def all_true_rows(data_dir: str, laws: dict[int, dict]):
+    """Rows (tier 'all') for every true a => b, a != b, in row-major order."""
+    n, true, explicit = read_bits(os.path.join(data_dir, BITS_FILE))
+    for byte_i, byte in enumerate(true):
+        if not byte:
+            continue
+        for j in range(8):
+            if byte >> (7 - j) & 1:
+                i = byte_i * 8 + j
+                a, b = divmod(i, n)
+                if i >= n * n or a == b:
+                    continue
+                yield {"problem": problem_name(a + 1, b + 1), "hyp": a + 1, "concl": b + 1,
+                       "tier": "all", "code": 4 if _bit(explicit, i) else 3,
+                       "hyp_class": laws[a + 1]["class"], "concl_class": laws[b + 1]["class"],
+                       "hyp_size": laws[a + 1]["size"], "concl_size": laws[b + 1]["size"]}
 
 
 # ------------------------------------------------------------------- build
@@ -504,6 +550,7 @@ def cmd_build(args) -> None:
                           "per_pair": args.pairs_per, "seed": args.pairs_seed,
                           "filter_magmas": int(sat.shape[1]), "size4": args.size4}
     os.makedirs(args.out_dir, exist_ok=True)
+    write_bits(M, os.path.join(args.out_dir, BITS_FILE))
     with open(os.path.join(args.out_dir, "laws.tsv"), "w") as f:
         f.write("id\tclass\tsize\tformula\n")
         for i in range(1, n + 1):
@@ -528,12 +575,22 @@ def read_selection(data_dir: str) -> list[dict]:
 
 def cmd_write(args) -> None:
     laws = load_laws(os.path.join(args.data_dir, "laws.tsv"))
-    rows = read_selection(args.data_dir)
     # ':' as well as ',': sbatch --export splits its argument at commas
-    tiers = set(filter(None, re.split(r"[,:+\s]+", args.tiers))) if args.tiers else set(TIERS)
+    tiers = (set(filter(None, re.split(r"[,:+\s]+", args.tiers))) if args.tiers
+             else set(TIERS) - {"all"})
     if tiers - set(TIERS):
         raise SystemExit(f"unknown tiers {sorted(tiers - set(TIERS))}; known: {TIERS}")
-    rows = [r for r in rows if r["tier"] in tiers]
+    if "all" in tiers:
+        if tiers != {"all"} or args.sample:
+            raise SystemExit("--tiers all cannot be combined with other tiers or --sample")
+        rows = all_true_rows(args.data_dir, laws)
+        if args.shard:      # shard while streaming: 8M rows
+            k, n = (int(x) for x in args.shard.split("/"))
+            rows = (r for i, r in enumerate(rows) if i % n == k)
+            args.shard = ""
+        rows = list(rows)
+    else:
+        rows = [r for r in read_selection(args.data_dir) if r["tier"] in tiers]
     if args.problems:
         want = {l.strip() for l in open(args.problems) if l.strip()}
         rows = [r for r in rows if r["problem"] in want]
@@ -558,6 +615,101 @@ def cmd_write(args) -> None:
                                   **{k: r[k] for k in r if k != "problem"}}) + "\n")
     print(f"{len(rows)} problems ({dict(collections.Counter(r['tier'] for r in rows))}) "
           f"-> {pdir}, manifest {manifest}")
+
+
+# ------------------------------------------------------- compact, summarize
+
+COMPACT_FIELDS = ("problem", "flatten", "status", "cps", "wall", "cpu_seconds",
+                  "allocated_bytes", "proof")
+
+
+def _compact_value(v) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        return f"{v:.4g}"
+    return str(v)
+
+
+def cmd_compact(args) -> None:
+    """nt.expand base output (.jsonl) -> the same rows as gzipped TSV with
+    only COMPACT_FIELDS (paths dropped: problems can be written again)."""
+    for path in args.runs:
+        out = re.sub(r"\.jsonl$", "", path) + ".tsv.gz"
+        n = 0
+        with open(path) as src, gzip.open(out + ".tmp", "wt") as dst:
+            dst.write("\t".join(COMPACT_FIELDS) + "\n")
+            for line in src:
+                if line.strip():
+                    r = json.loads(line)
+                    dst.write("\t".join(_compact_value(r.get(k)) for k in COMPACT_FIELDS)
+                              + "\n")
+                    n += 1
+        os.replace(out + ".tmp", out)
+        if args.remove:
+            os.unlink(path)
+        print(f"{path}: {n} rows -> {out}")
+
+
+def _iter_runs(path: str):
+    if path.endswith(".tsv.gz"):
+        with gzip.open(path, "rt") as f:
+            header = f.readline().rstrip("\n").split("\t")
+            for line in f:
+                r = dict(zip(header, line.rstrip("\n").split("\t")))
+                yield (r["problem"], r["flatten"] == "True", r["status"],
+                       int(r["cps"]) if r["cps"] else None,
+                       float(r["wall"]) if r["wall"] else None)
+    else:
+        for line in open(path):
+            if line.strip():
+                r = json.loads(line)
+                yield r["problem"], r["flatten"], r["status"], r["cps"], r["wall"]
+
+
+def cmd_summarize(args) -> None:
+    """Streaming version of `report` for very many runs (the all tier):
+    counts, CP and time distributions per flattening setting, and the
+    problems that are not trivial (run lists kept only for those)."""
+    import math
+    runs = 0
+    status = collections.Counter()
+    cps_bins = {True: collections.Counter(), False: collections.Counter()}
+    wall_total = {True: 0.0, False: 0.0}
+    nontrivial = collections.defaultdict(list)
+    problems_seen = set() if args.count_problems else None
+    for p in args.runs:
+        for prob, flat, st, cps, wall in _iter_runs(p):
+            runs += 1
+            status[st] += 1
+            if wall:
+                wall_total[flat] += wall
+            if problems_seen is not None:
+                problems_seen.add(prob)
+            if st == "proved":
+                cps_bins[flat][0 if cps < 1 else int(math.log10(cps)) + 1] += 1
+            if st != "proved" or cps >= args.min_cps:
+                nontrivial[prob].append((flat, st, cps, wall))
+    print(f"{runs} runs: {dict(status)}")
+    if problems_seen is not None:
+        print(f"{len(problems_seen)} problems")
+    for flat in (False, True):
+        b = cps_bins[flat]
+        print(f"flattening {'on ' if flat else 'off'}: proved runs by CPs "
+              + ", ".join(f"{'0' if k == 0 else '<1e' + str(k)}: {b[k]}" for k in sorted(b))
+              + f"; total wall {wall_total[flat]:.0f} s")
+    label = {p for p, rs in nontrivial.items() if any(st == "proved" for _, st, _, _ in rs)}
+    hard = set(nontrivial) - label
+    print(f"not trivial (a run unproved or >= {args.min_cps} CPs): {len(nontrivial)} "
+          f"(label {len(label)}, hard {len(hard)})")
+    for p in sorted(nontrivial, key=lambda p: -max((c or 0) for _, _, c, _ in nontrivial[p]))[:args.show]:
+        print("  ", p, sorted(nontrivial[p]))
+    if args.write_lists:
+        os.makedirs(args.write_lists, exist_ok=True)
+        for name, items in (("label", label), ("hard", hard)):
+            with open(os.path.join(args.write_lists, f"{name}.txt"), "w") as f:
+                f.writelines(f"{p}\n" for p in sorted(items))
+        print(f"lists -> {args.write_lists}/{{label,hard}}.txt (trivial ones not listed)")
 
 
 # -------------------------------------------------------------------- keep
@@ -709,12 +861,23 @@ def main() -> None:
                    help="below this a proof counts as trivial (nt.expand's DEFAULT_MIN_CPS)")
     r.add_argument("--write-lists", default="", metavar="DIR",
                    help="write trivial.txt, label.txt, hard.txt (for write --problems)")
+    cp = sub.add_parser("compact", help="nt.expand base output -> compact .tsv.gz")
+    cp.add_argument("runs", nargs="+")
+    cp.add_argument("--remove", action="store_true", help="delete the .jsonl afterwards")
+    sm = sub.add_parser("summarize", help="streaming report for very many runs")
+    sm.add_argument("runs", nargs="+", help=".tsv.gz (from compact) or .jsonl files")
+    sm.add_argument("--min-cps", type=int, default=10_000)
+    sm.add_argument("--show", type=int, default=20, help="print the N most expensive")
+    sm.add_argument("--count-problems", action="store_true",
+                    help="count distinct problems (needs memory for all names)")
+    sm.add_argument("--write-lists", default="", metavar="DIR")
     k = sub.add_parser("keep", help="after triage: keep only problems with proofs")
     k.add_argument("runs", help="nt.expand base output whose problems are in a temporary dir")
     k.add_argument("--to", required=True, help="persistent problem directory (gets ETP/)")
     args = ap.parse_args()
     {"build": cmd_build, "write": cmd_write, "check": cmd_check,
-     "report": cmd_report, "keep": cmd_keep}[args.cmd](args)
+     "report": cmd_report, "keep": cmd_keep, "compact": cmd_compact,
+     "summarize": cmd_summarize}[args.cmd](args)
 
 
 if __name__ == "__main__":

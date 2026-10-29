@@ -164,6 +164,25 @@ again (`python -m nt.etp write --problems out/etp/lists/label.txt --out-dir
 `write`, `report` and `check` need only the standard library; `build` (run
 once, already done) needs numpy and pandas.
 
+### All 8,173,585 true implications
+
+For the record (not for labels): `TIERS=all` reads every true pair from
+`data/etp/matrix.bits.gz` (104 KB) instead of the selection file. 64 shards
+of about 128k problems (255k runs) each; at about 30 ms per run on 32 cores
+a shard takes a few minutes. Each shard's output is compacted to
+`out/etp/triage_all_<K>.tsv.gz` (about 13 bytes per run, so roughly 200 MB in
+all), and `summarize` streams over them instead of loading 16M runs:
+
+```bash
+sbatch -A <project> --array=0-63 --export=ALL,TIERS=all,NAME=triage_all slurm/etp_triage.sbatch
+python -m nt.etp summarize out/etp/triage_all_*.tsv.gz --write-lists out/etp/lists_all
+```
+
+`summarize` prints the run counts, the CP distribution per flattening
+setting and the most expensive problems, and lists only the non-trivial ones
+(label, hard). Add `--count-problems` to count distinct problems (needs a
+few GB of memory for 8M names).
+
 ## Project storage
 
 `NT_STORE` (in `slurm/vera.env`) points at the group's Cephyr NOBACKUP
