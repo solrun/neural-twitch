@@ -28,7 +28,7 @@ Goal: learn to generate Twitch-style abstractions (term patterns given to Twee a
 
 - **Hindsight subproblems.** TPTP UEQ proofs give lemmas over the axiom signature, which become new goals: 1,332 subproblems from 269 proofs.
 - **Stitch sets** for the 823 hard enough to matter; labels for 497. They behave like the original problems, so the labels are pooled.
-- **ETP** (`etp.md`). The 1,027 ETP problems in Twitch's repo are all false implications according to ETP's final matrix, which is why they timed out. A new selection of true implications (`nt.etp`, `data/etp/`) is far too easy: all 29,163 class representatives are proved under both settings in under 7k CPs (median 2). A 100k random sample of true pairs is the next place to look for hard ones.
+- **ETP** (`etp.md`). The 1,027 ETP problems in Twitch's repo are all false implications according to ETP's final matrix, which is why they timed out. A new selection of true implications (`nt.etp`, `data/etp/`) is far too easy: 39,163 true implications (all class representatives, 10,000 random pairs, and ETP's longest Vampire proofs and hand-proved ones such as Tarski's axiom) are all proved in under 7k CPs (median 2). So ETP gives neither labels nor hard problems.
 
 **New TPTP problems (`data/tptp_extra/`, branch `tptp-extra-ueq`).**
 - TPTP v9.2.1 has 1,143 unsatisfiable UEQ problems. Twitch's `filter.py` kept only nine domains (ALG, BOO, COL, GRP, LAT, LCL, REL, RNG, ROB), giving its 1,041. The other 100 are listed in `new_ueq_unsat.tsv`; 83 with fewer than 1,000 clauses are copied (the 17 left out are mostly CSR/SUMO problems with up to 44k clauses).
@@ -211,13 +211,13 @@ First results (`data/dataset`). hit@k is the share of examples where a known hel
 - **Native vs ifeq-encoded problems:** report hard results separately for the two, since one generic encoding pattern accounts for 12 of the 26 sampled hard proofs.
 - **New patterns, not just reuse:** try a decoder built for diversity, e.g. a conditional VAE as in the neural conjecturing work, or sampling at a higher temperature.
 - **Overlap of hard with training theories:** quantify how many hard problems share an axiomatization (or symbol names) with training problems; the attribution suggests most proved ones do.
-- **Sampling as the default method** for later evaluations (ETP, leave-domain-out), with rerank as the comparison.
+- **Sampling as the default method** for later evaluations (leave-domain-out), with rerank as the comparison.
 - **Lost test proofs:** the new model loses more at k=1 with flattening on (9 vs 3). Look at which problems, and whether a portfolio with plain Twee covers them all.
 - **Portfolio of singles instead of sets:** run each of rerank's top k candidates as a separate single-abstraction run, against a k-set at the same total cost (tooling done: `eval_sets.sbatch MODE=singles`, `nt.eval_report --singles`).
 - **MVA weight in training:** one axiom group is about 10% of train; try per-group down-weighting, or a run without MVA.
 - **Diversity in reranking:** a diversity penalty (e.g. no two candidates with the same shape) might close rerank's gap to sampling at k=5.
 - **Better generalisation:** smaller model or stronger name dropout, more data (more hindsight subproblems), or train the scorer against near-miss candidates instead of only labelled singles.
-- **ETP:** find hard true implications (closure tier, random tier; `etp.md`), then label them and measure the solve rate with generated sets.
+- **ETP:** its true implications are all easy for Twee (`etp.md`), so it is out as a benchmark and as the leave-domain-out test; that test needs a held-out TPTP theory.
 - **Possible LLM comparison**, using the text form of the dataset (`text.jsonl`).
 - **Label backup:** commit the label files to git as a backup.
 - **Citation:** on the AITP 2026 programme, *Neural Conjecturing for Saturation Theorem Provers* is by Jakubův, Olšák, Suda and Urban; check which paper and author list the "Chvalovský/Suda/Urban" references mean.

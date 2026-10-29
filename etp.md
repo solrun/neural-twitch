@@ -82,12 +82,29 @@ not in the goal.
 So none of the 29,163 class representatives is useful for labels or as a
 hard problem.
 
-## Next
+## Random sample
 
-- The random tier is the search for hard problems: 100k problems x 2 settings
-  at well under a second each is cheap. A sample first:
-  `--export=ALL,TIERS=random,SAMPLE=10000`.
-- If the random tier is also all trivial, ETP's positive implications are
-  too easy for Twee to be useful for labels as they stand. The known hard
-  positive implications would have to be found specifically (or
-  harder variants made, e.g. hindsight goals from the longest proofs).
+10,000 of the random tier (seed 0; random true pairs, no pure instances):
+**all trivial** as well.
+
+## ETP's own hard implications
+
+- **Vampire.** ETP has 1,507 implications proved by Vampire
+  (`Generated/VampireProven`). The longest proof, 947 => 3897 (154 steps), is
+  in our hasse tier, and so are 723 => 872 (58), 2666 => 3460 (54),
+  2860 => 2660 (45), 3940 => 4477 (44) and 2789 => 898 (38): all trivial for
+  Twee. 1,001 of the 1,507 are in the selection.
+- **By hand.** Outside `Subgraph.lean` (mostly about x = y), the hand-written
+  positive results are Tarski's axiom 543 => 11, 16, 40, 3823, 4369 (all in
+  our closure tier, all trivial), 37 => 2 and 514 => 2 (degenerate tier,
+  trivial) and 1571 => 3167, 4656 (not run). `ManuallyProved/` is mostly
+  refutations.
+
+## Conclusion
+
+39,163 true implications, including ETP's hardest automated and hand-proved
+ones, and not one needs 10k CPs. Below that, hint ratios mean little
+(DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
+hard problems for Twee, and ETP cannot serve as the leave-domain-out test
+as planned. What remains of ETP's difficulty is in the refutations (finite
+and infinite counterexamples), which Twee does not address.
