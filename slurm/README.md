@@ -131,12 +131,15 @@ partial one from a job that was cut off.
 
 `data/etp` holds the true ETP implications selected by `nt.etp build`
 (129,163 problems in five tiers; see `nt/etp.py` and `etp.md`). The job runs
-plain Twee under both flattening settings. With `NT_STORE` set in
-`slurm/vera.env` (project storage), it writes the problems to
-`$NT_STORE/etp/problems` and keeps proofs of at least 10k CPs in
-`$NT_STORE/etp/proofs`, so the label band needs no second run. Without it,
-each shard's problems go to `$TMPDIR` and no proofs are kept, so nothing
-counts against the home quota:
+plain Twee under both flattening settings, on problems written to node-local
+`$TMPDIR`. With `NT_STORE` set in `slurm/vera.env` (project storage), proofs
+of at least 10k CPs go to `$NT_STORE/etp/proofs`, the problems with such a
+proof are copied to `$NT_STORE/etp/problems`, and the output rows point there
+(`nt.etp keep`), so the label band needs no second run. Project storage has a
+file quota too (100k problem files exceeded it), so only those few files go
+there; any other problem can be written again at the same path with
+`nt.etp write --problems <list> --out-dir $NT_STORE/etp/problems`. Without
+`NT_STORE`, no proofs are kept:
 
 ```bash
 mkdir -p logs out/etp
@@ -153,7 +156,7 @@ tier: `--export=ALL,TIERS=random,SAMPLE=10000`. Defaults: 1M CPs and 300 s per
 run (`MAX_CPS`, `WALL`), proofs from 10k CPs (`PROOF_MIN_CPS`).
 
 The report splits each tier into trivial (every setting proves it under 10k
-CPs), label and hard. With `NT_STORE`, the rows' paths and proofs stay
+CPs), label and hard. With `NT_STORE`, the rows' paths and proofs are
 valid, so `nt.expand abstract` can run on the triage output directly (it
 skips runs under its `--min-cps`). Without it, write the label band out
 again (`python -m nt.etp write --problems out/etp/lists/label.txt --out-dir

@@ -61,6 +61,8 @@ the pair with the fewest operations in total (lowest numbers on ties).
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
+  # rows of a triage run point at $NT_STORE; only problems with proofs are copied
+  python -m nt.etp keep out/etp/triage_known_0.jsonl --to $NT_STORE/etp/problems
   # truth of existing ETP problem files (e.g. Twitch's ETP_UEQ_UNSAT)
   python -m nt.etp check --implications export_raw_implications_10_23_2026.csv \\
       $TWITCH_DIR/data/TPTP/ETP_UEQ_UNSAT
@@ -410,6 +412,36 @@ def cmd_write(args) -> None:
           f"-> {pdir}, manifest {manifest}")
 
 
+# -------------------------------------------------------------------- keep
+
+def cmd_keep(args) -> None:
+    """Point the rows of a triage run at --to instead of the temporary
+    problem directory, and copy there only the problems with a kept proof.
+    The others can be written again at the same path with `write --problems`."""
+    import shutil
+    dest = os.path.join(os.path.abspath(args.to), "ETP")
+    os.makedirs(dest, exist_ok=True)
+    copied, missing = 0, []
+    rows = [json.loads(l) for l in open(args.runs) if l.strip()]
+    for r in rows:
+        new = os.path.join(dest, os.path.basename(r["path"]))
+        if r.get("proof") and not os.path.exists(new):
+            if os.path.exists(r["path"]):
+                shutil.copyfile(r["path"], new)
+                copied += 1
+            else:                   # e.g. a resumed job: its old $TMPDIR is gone
+                missing.append(r["problem"])
+        r["path"] = new
+    tmp = args.runs + ".tmp"
+    with open(tmp, "w") as f:
+        f.writelines(json.dumps(r) + "\n" for r in rows)
+    os.replace(tmp, args.runs)
+    print(f"{args.runs}: {len(rows)} rows now under {dest}; {copied} problems with proofs copied")
+    if missing:
+        print(f"{len(missing)} problems with proofs not found (write them again with "
+              f"`write --problems`): {missing[:5]}")
+
+
 # ------------------------------------------------------------------- check
 
 def cmd_check(args) -> None:
@@ -517,9 +549,12 @@ def main() -> None:
                    help="below this a proof counts as trivial (nt.expand's DEFAULT_MIN_CPS)")
     r.add_argument("--write-lists", default="", metavar="DIR",
                    help="write trivial.txt, label.txt, hard.txt (for write --problems)")
+    k = sub.add_parser("keep", help="after triage: keep only problems with proofs")
+    k.add_argument("runs", help="nt.expand base output whose problems are in a temporary dir")
+    k.add_argument("--to", required=True, help="persistent problem directory (gets ETP/)")
     args = ap.parse_args()
     {"build": cmd_build, "write": cmd_write, "check": cmd_check,
-     "report": cmd_report}[args.cmd](args)
+     "report": cmd_report, "keep": cmd_keep}[args.cmd](args)
 
 
 if __name__ == "__main__":

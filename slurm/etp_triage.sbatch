@@ -5,11 +5,12 @@
 #   sbatch --array=0-15 slurm/etp_triage.sbatch
 #   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
 # (outputs are out/etp/<NAME>_<K>.jsonl; NAME defaults to triage_<tiers>)
-# With NT_STORE set (slurm/vera.env), problems go to $NT_STORE/etp/problems
-# and proofs to $NT_STORE/etp/proofs, so the label band needs no second run
-# (`nt.expand abstract` reads the proofs directly). Without it, each shard's
-# problems go to node-local $TMPDIR and no proofs are kept, so nothing counts
-# against the home quota.
+# Problems are written to node-local $TMPDIR. With NT_STORE set (slurm/vera.env),
+# proofs of at least PROOF_MIN_CPS go to $NT_STORE/etp/proofs, the problems
+# with such a proof are copied to $NT_STORE/etp/problems, and the output rows
+# point there (nt.etp keep), so the label band needs no second run. Only a few
+# files reach project storage: it has a file quota, and 100k problem files
+# exceeded it. Without NT_STORE, no proofs are kept and rows keep $TMPDIR paths.
 # Options (--export=ALL,...):
 #   TIERS      subset of degenerate:hasse:closure:equiv, separated by ':' (sbatch's
 #              --export splits at commas), e.g. TIERS=degenerate:hasse:equiv; default all
@@ -44,10 +45,8 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/etp.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 if [ -n "${NT_STORE:-}" ]; then
-    PROBLEMS="$NT_STORE/etp/problems"
     PROOFS=${PROOFS:-1}
 else
-    PROBLEMS="$WORK"
     PROOFS=${PROOFS:-0}
 fi
 if [ "$PROOFS" = 1 ]; then
@@ -59,8 +58,11 @@ fi
 
 python -m nt.etp write data/etp ${TIERS:+--tiers "$TIERS"} ${SAMPLE:+--sample "$SAMPLE"} \
     --shard "$K/$N" \
-    --out-dir "$PROBLEMS" --manifest "$WORK/manifest.jsonl"
+    --out-dir "$WORK" --manifest "$WORK/manifest.jsonl"
 # shellcheck disable=SC2086  # EXTRA_ARGS is word-split on purpose
 python -m nt.expand base "$WORK/manifest.jsonl" --out "out/etp/${NAME}_${K}.jsonl" \
     "${PROOF_ARGS[@]}" --max-cps "${MAX_CPS:-1000000}" --wall-timeout "${WALL:-300}" \
     --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}
+if [ -n "${NT_STORE:-}" ]; then
+    python -m nt.etp keep "out/etp/${NAME}_${K}.jsonl" --to "$NT_STORE/etp/problems"
+fi
