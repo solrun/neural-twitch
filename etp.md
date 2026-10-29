@@ -103,11 +103,14 @@ hard problem.
 - The **known tier** (2026-10-29) holds the 550 of these 1,613 pairs not
   already selected, among them the second and third longest Vampire proofs,
   3957 => 3971 (133 steps) and 3569 => 3957 (105), and 650 => 448 (65).
+  **All 550 are trivial** (same triage settings), including 1571 => 3167 and
+  1571 => 4656.
 
 ## Conclusion
 
-39,163 true implications, including ETP's hardest automated and hand-proved
-ones, and not one needs 10k CPs. Below that, hint ratios mean little
+39,713 true implications, including every one ETP proved on its own (all
+1,507 Vampire proofs and all hand-written positive results), and not one
+needs 10k CPs. Below that, hint ratios mean little
 (DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
 hard problems for Twee, and ETP cannot serve as the leave-domain-out test
 as planned. What remains of ETP's difficulty is in the refutations (finite
