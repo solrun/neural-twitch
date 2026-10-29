@@ -46,6 +46,12 @@ equivalent when each implies the other):
               (with Vampire's proof length), Subgraph.lean, Tarski's axiom 543,
               FreeMagmaImplications and ManuallyProved/Equation1571, except
               pairs already in another tier (1,063 of the 1,613).
+  vampire_hard  the true implications Janota's Vampire runs (arXiv:2508.15856,
+              Zenodo 10.5281/zenodo.16910288) proved only in the 600 s run,
+              not within 500 instructions (build --vampire-hard
+              data/etp/vampire_hard.tsv, with Vampire's time): 2,390 pairs
+              with only four hypotheses, 650 and its dual 2923 (1,192 each),
+              450 and its dual 3089 (3 each); the 2,166 not in another tier.
 
 Every row has `instance`: the conclusion is a substitution instance of the
 hypothesis (either orientation), so one rewrite proves it. Implications into
@@ -56,7 +62,8 @@ the pair with the fewest operations in total (lowest numbers on ties).
   # once, from the ETP files (needs numpy and pandas)
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
       --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp \\
-      --random 100000 --known data/etp/known.tsv
+      --random 100000 --known data/etp/known.tsv \\
+      --vampire-hard data/etp/vampire_hard.tsv
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
@@ -85,7 +92,7 @@ import re
 import sys
 import tarfile
 
-TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known")
+TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known", "vampire_hard")
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
          2: "explicit_conjecture_true", -2: "explicit_conjecture_false",
@@ -227,7 +234,8 @@ def read_known(path: str) -> list[dict]:
 
 
 def select(M, sizes, formulas=None, n_random: int = 0, seed: int = 0,
-           known: list[dict] | None = None) -> tuple[list[dict], dict]:
+           known: list[dict] | None = None,
+           vampire_hard: list[dict] | None = None) -> tuple[list[dict], dict]:
     """The tiered selection described in the module docstring. formulas
     (0-based list of 'l = r') is needed for `instance` and the random tier."""
     import numpy as np
@@ -303,25 +311,32 @@ def select(M, sizes, formulas=None, n_random: int = 0, seed: int = 0,
             if added == n_random:
                 break
 
-    # pairs ETP proved on their own, not already in another tier
-    false_known = []
-    if known:
+    # listed pairs (known, vampire_hard), each not already in another tier
+    def add_listed(listed, tier):
+        false_pairs = []
         taken = {(r["hyp"], r["concl"]) for r in rows}
-        for k in known:
-            a, b = int(k["hyp"]), int(k["concl"])
+        for item in listed:
+            a, b = int(item["hyp"]), int(item["concl"])
             if M[a - 1, b - 1] <= 0:
-                false_known.append((a, b))
+                false_pairs.append((a, b))
                 continue
             if (a, b) in taken:
                 continue
             taken.add((a, b))
-            r = row(a - 1, b - 1, "known")
-            r["source"] = k["source"]
-            r["vampire_steps"] = int(k["vampire_steps"]) if k.get("vampire_steps") else None
+            r = row(a - 1, b - 1, tier)
+            r["source"] = item["source"]
+            r["vampire_steps"] = int(item["vampire_steps"]) if item.get("vampire_steps") else None
+            if item.get("vampire_time"):
+                r["vampire_time"] = float(item["vampire_time"])
             rows.append(r)
-    if false_known:
-        print(f"warning: {len(false_known)} known pairs are not true in the matrix: "
-              f"{false_known[:10]}", file=sys.stderr)
+        if false_pairs:
+            print(f"warning: {len(false_pairs)} {tier} pairs are not true in the matrix: "
+                  f"{false_pairs[:10]}", file=sys.stderr)
+
+    if known:
+        add_listed(known, "known")
+    if vampire_hard:
+        add_listed(vampire_hard, "vampire_hard")
 
     assert all(M[r["hyp"] - 1, r["concl"] - 1] > 0 for r in rows)
     stats = {"laws": n, "classes": k, "degenerate_laws": int((cls == deg_cls).sum()),
@@ -353,7 +368,9 @@ def cmd_build(args) -> None:
     rows, stats = select(M, [laws[i]["size"] for i in range(1, n + 1)],
                          [laws[i]["formula"] for i in range(1, n + 1)],
                          n_random=args.random, seed=args.seed,
-                         known=read_known(args.known) if args.known else None)
+                         known=read_known(args.known) if args.known else None,
+                         vampire_hard=(read_known(args.vampire_hard)
+                                       if args.vampire_hard else None))
     cls = equivalence_classes(M > 0)
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "laws.tsv"), "w") as f:
@@ -492,11 +509,11 @@ def cmd_report(args) -> None:
     names = ("trivial", "label", "hard")
     print(f"{len(buckets)} problems with runs (of {len(sel)} selected); "
           f"trivial = proved under every setting with < {args.min_cps} CPs\n")
-    print(f"{'tier':12s}" + "".join(f"{b:>9s}" for b in names) + "  hyp classes (label)")
+    print(f"{'tier':14s}" + "".join(f"{b:>9s}" for b in names) + "  hyp classes (label)")
     for t in TIERS:
         cls = {sel[p]["hyp_class"] for p, b in buckets.items()
                if b == "label" and sel[p]["tier"] == t}
-        print(f"{t:12s}" + "".join(f"{table[t, b]:9d}" for b in names) + f"  {len(cls):9d}")
+        print(f"{t:14s}" + "".join(f"{table[t, b]:9d}" for b in names) + f"  {len(cls):9d}")
     flat = collections.Counter()
     for p, rs in runs.items():
         st = {r["flatten"]: r["status"] == "proved" for r in rs}
@@ -527,6 +544,9 @@ def main() -> None:
     b.add_argument("--known", default="",
                    help="TSV of pairs ETP proved on their own (hyp, concl, source, "
                         "vampire_steps): the known tier")
+    b.add_argument("--vampire-hard", default="",
+                   help="TSV of pairs Vampire proved only in its 600 s run (hyp, concl, "
+                        "source, vampire_steps, vampire_time): the vampire_hard tier")
     w = sub.add_parser("write", help="problem files and a manifest for nt.expand base")
     w.add_argument("data_dir", nargs="?", default="data/etp")
     w.add_argument("--out-dir", required=True)

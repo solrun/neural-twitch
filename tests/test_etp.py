@@ -92,3 +92,19 @@ def test_known_tier():
     k = [r for r in rows if r["tier"] == "known"]
     assert [(r["hyp"], r["concl"], r["source"], r["vampire_steps"]) for r in k] == \
         [(4, 5, "vampire", 40)]
+
+
+def test_vampire_hard_tier_and_class_count():
+    M = toy_matrix()
+    formulas = ["X = X", "X = Y", "X = m(X, X)", "m(X, X) = X", "X = m(X, m(X, X))",
+                "X = m(Y, Z)", "m(X, Y) = m(Y, X)"]
+    known = [{"hyp": "4", "concl": "5", "source": "vampire", "vampire_steps": "40"}]
+    hard = [{"hyp": "4", "concl": "5", "source": "vampire_600s", "vampire_steps": "",
+             "vampire_time": "31.5"},                                    # already known
+            {"hyp": "4", "concl": "7", "source": "vampire_600s", "vampire_steps": "",
+             "vampire_time": "40.0"}]
+    rows, stats = etp.select(M, [0, 0, 1, 1, 2, 1, 2], formulas, known=known,
+                             vampire_hard=hard)
+    v = [r for r in rows if r["tier"] == "vampire_hard"]
+    assert [(r["hyp"], r["concl"], r["vampire_time"]) for r in v] == [(4, 7, 40.0)]
+    assert stats["classes"] == 5          # {1}, {2,6}, {3,4}, {5}, {7}

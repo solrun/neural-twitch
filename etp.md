@@ -34,7 +34,8 @@ transitive reduction has 4,721 edges, every one with an explicit ETP proof.
 | closure | 20,894 | one per other pair of classes P => Q |
 | equiv | 2,053 | a cycle a1 => a2 => … => a1 within each class |
 | random | 100,000 | random true pairs (seed 0), hypothesis not degenerate, no pure instances, none of the above |
-| known | 550 | pairs ETP proved on their own (`data/etp/known.tsv`, from ETP commit 2f49bda), not in the tiers above: 506 from Vampire, 42 from `Subgraph.lean`, 1571 => 3167 and 4656 |
+| known | 550 | pairs with a Vampire or hand-written proof in ETP (`data/etp/known.tsv`, from ETP commit 2f49bda), not in the tiers above: 506 from Vampire, 42 from `Subgraph.lean`, 1571 => 3167 and 4656 |
+| vampire_hard | 2,166 | pairs Janota's Vampire runs proved only with the 600 s limit (`data/etp/vampire_hard.tsv`), not in the tiers above; hypotheses 650 and 2923 only |
 
 For a class pair, the representative is an explicitly proved pair if there
 is one, otherwise the pair with the fewest operations. Problems are CNF in
@@ -143,13 +144,33 @@ is trivial for Twee (known tier).
   all 8,173,585 non-reflexive true implications, all but 2,390 (99.97%)
   within 500 instructions, and "the challenge lies [in] the implications
   that need to be refuted". It leaves 1,062 implications undecided (310
-  apparently needing infinite models). Twitch's 1,027 "unknown" problems,
-  generated in the same month (2025-08-02) and all false, are probably close
-  to that set (not checked). The 2,390 Vampire-hard true implications are
-  in the paper's Zenodo record (doi:10.5281/zenodo.16910288) and have not
-  been run here as such.
+  apparently needing infinite models).
 - Twee is not discussed in either paper.
 
+## Janota's Vampire data (Zenodo 10.5281/zenodo.16910288)
+
+`eq_vampire.tgz`: per-pair status, time and method for all 22,028,942
+pairs (methods: fmb and saturation with 500 instructions, fmb 60 s, fmb and
+saturation 600 s).
+
+- **Vampire agrees with the ETP matrix on every pair:** 8,173,585 proved,
+  13,854,295 refuted, no contradictions; the 1,062 it leaves undecided are
+  all false in ETP.
+- **Twitch's ETP set comes from Vampire's undecided set.** Of Twitch's 1,027
+  problems, 1,016 are among the 1,062 Vampire left undecided and 11 were
+  refuted only in its long runs. Janota's `generate_tptp.py` writes the same
+  file format as Twitch's problems ("% LHS", "% RHS negated and
+  skolemized").
+- **Vampire-hard true implications:** 8,171,195 are proved within 500
+  instructions (median 0.02 s, max 2.7 s); the other **2,390** need the 600 s
+  run (median 30 s, max 102 s, 450 => 432). They have only **four
+  hypotheses: 650 and its dual 2923 (1,192 each), 450 and its dual 3089 (3
+  each)**, the laws the ETP paper names for Prover9 (7.3.5). In Twee too,
+  450 and 3089 are the most expensive hypotheses (about 6,400 and 6,900 CPs)
+  and 2923 gives the one problem over 10k CPs. So in all three provers the
+  difficulty belongs to the hypothesis law, not the implication.
+- 224 of the 2,390 were already run here (all trivial); the other 2,166 are
+  the `vampire_hard` tier.
 ## Conclusion
 
 129,713 true implications (all class representatives, 100,000 random pairs,
