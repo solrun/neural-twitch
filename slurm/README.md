@@ -183,6 +183,25 @@ setting and the most expensive problems, and lists only the non-trivial ones
 (label, hard). Add `--count-problems` to count distinct problems (needs a
 few GB of memory for 8M names).
 
+### Countermodel search (Vampire finite model builder)
+
+For problems Twee does not prove, `etp_fmb.sbatch` runs Vampire's finite
+model builder (`nt.etp fmb`): a countermodel shows the problem is false. Copy
+the static binary from Janota's archive to Vera once and set `VAMPIRE_PATH`
+in `slurm/vera.env`:
+
+```bash
+# on your laptop
+tar xzf eq_vampire.tgz eq_vampire/vampire
+scp eq_vampire/vampire <cid>@vera1.c3se.chalmers.se:bin/vampire
+# on Vera
+sbatch -A <project> --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/hard.txt,NAME=fmb_pairs slurm/etp_fmb.sbatch
+python -m nt.etp fmb-report out/etp/fmb_pairs_*.tsv --triage out/etp/triage_pairs_*.jsonl --write-lists out/etp/lists_pairs
+```
+
+`fmb-report` cross-tabulates the result (false / true / unknown) with how
+Twee's runs ended (saturated under some setting, or open).
+
 ## Project storage
 
 `NT_STORE` (in `slurm/vera.env`) points at the group's Cephyr NOBACKUP

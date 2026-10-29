@@ -82,6 +82,9 @@ the pair with the fewest operations in total (lowest numbers on ties).
   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
   # rows of a triage run point at $NT_STORE; only problems with proofs are copied
   python -m nt.etp keep out/etp/triage_known_0.jsonl --to $NT_STORE/etp/problems
+  # countermodel search with Vampire's finite model builder (slurm/etp_fmb.sbatch)
+  python -m nt.etp fmb $TMPDIR/etp/manifest.jsonl --out out/etp/fmb_0.tsv --vampire $VAMPIRE_PATH
+  python -m nt.etp fmb-report out/etp/fmb_*.tsv --triage out/etp/triage_pairs_*.jsonl
   # truth of existing ETP problem files (e.g. Twitch's ETP_UEQ_UNSAT)
   python -m nt.etp check --implications export_raw_implications_10_23_2026.csv \\
       $TWITCH_DIR/data/TPTP/ETP_UEQ_UNSAT
@@ -713,6 +716,105 @@ def cmd_summarize(args) -> None:
         print(f"lists -> {args.write_lists}/{{label,hard}}.txt (trivial ones not listed)")
 
 
+# --------------------------------------------------------------------- fmb
+
+FMB_FIELDS = ("problem", "status", "seconds", "model_size")
+
+
+def _fmb_job(prob: dict, vampire: str, limit: int) -> tuple:
+    """Vampire's finite model builder on one problem. Satisfiable (a finite
+    countermodel of hypotheses and negated goal): the implication is false;
+    Unsatisfiable: true; otherwise unknown."""
+    import subprocess
+    import time
+    t0 = time.monotonic()
+    try:
+        out = subprocess.run([vampire, "-sa", "fmb", "-sas", "cadical", "-t", f"{limit}s",
+                              prob["path"]], capture_output=True, text=True,
+                             timeout=limit + 30).stdout
+    except subprocess.TimeoutExpired:
+        return prob["problem"], "unknown", round(time.monotonic() - t0, 2), ""
+    status = "unknown"
+    m = re.search(r"SZS status (\w+)", out)
+    if m:
+        status = {"Satisfiable": "false", "CounterSatisfiable": "false",
+                  "Unsatisfiable": "true", "Theorem": "true"}.get(m.group(1), "unknown")
+    sizes = re.findall(r"TRYING \[(\d+)\]", out)
+    size = sizes[-1] if status == "false" and sizes else ""
+    return prob["problem"], status, round(time.monotonic() - t0, 2), size
+
+
+def cmd_fmb(args) -> None:
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    probs = [json.loads(l) for l in open(args.manifest) if l.strip()]
+    done = set()
+    if args.resume and os.path.exists(args.out):
+        with open(args.out) as f:
+            next(f, None)
+            done = {line.split("\t")[0] for line in f if line.strip()}
+    todo = [p for p in probs if p["problem"] not in done]
+    workers = args.workers or (len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity")
+                               else os.cpu_count() or 1)
+    print(f"{len(todo)} problems ({len(done)} already done), {args.limit} s each, "
+          f"{workers} workers", flush=True)
+    new = not os.path.exists(args.out) or not args.resume
+    counts = collections.Counter()
+    with open(args.out, "w" if new else "a") as out, ProcessPoolExecutor(workers) as ex:
+        if new:
+            out.write("\t".join(FMB_FIELDS) + "\n")
+        futs = [ex.submit(_fmb_job, p, args.vampire, args.limit) for p in todo]
+        for i, fut in enumerate(as_completed(futs), 1):
+            r = fut.result()
+            counts[r[1]] += 1
+            out.write("\t".join(map(str, r)) + "\n")
+            out.flush()
+            if i % 100 == 0 or i == len(futs):
+                print(f"{i}/{len(futs)} {dict(counts)}", flush=True)
+
+
+def _twee_ending(r: dict, max_cps: int) -> str:
+    if r["status"] == "budget":
+        return "cp limit" if (r["cps"] or 0) >= max_cps else "saturated"
+    return r["status"]
+
+
+def cmd_fmb_report(args) -> None:
+    """Counts of fmb results, and with --triage, against how Twee's runs of
+    the same problems ended (saturated under some setting, or open)."""
+    res = {}
+    for p in args.results:
+        with open(p) as f:
+            header = f.readline().rstrip("\n").split("\t")
+            for line in f:
+                if line.strip():
+                    r = dict(zip(header, line.rstrip("\n").split("\t")))
+                    res[r["problem"]] = r
+    print(f"{len(res)} problems: {dict(collections.Counter(r['status'] for r in res.values()))}")
+    sizes = collections.Counter(int(r["model_size"]) for r in res.values() if r["model_size"])
+    print("countermodel sizes:", dict(sorted(sizes.items())))
+    if args.triage:
+        endings = collections.defaultdict(set)
+        for p in args.triage:
+            for line in open(p):
+                if line.strip():
+                    r = json.loads(line)
+                    if r["problem"] in res:
+                        endings[r["problem"]].add(_twee_ending(r, args.max_cps))
+        group = {p: ("saturated" if "saturated" in e else "proved" if "proved" in e
+                     else "open") for p, e in endings.items()}
+        table = collections.Counter((group.get(p, "?"), r["status"]) for p, r in res.items())
+        print(f"\n{'Twee':10s}" + "".join(f"{s:>9s}" for s in ("false", "true", "unknown")))
+        for g in ("saturated", "open", "proved", "?"):
+            if any(table[g, s] for s in ("false", "true", "unknown")):
+                print(f"{g:10s}" + "".join(f"{table[g, s]:9d}" for s in ("false", "true", "unknown")))
+    if args.write_lists:
+        os.makedirs(args.write_lists, exist_ok=True)
+        for st in ("false", "true", "unknown"):
+            with open(os.path.join(args.write_lists, f"fmb_{st}.txt"), "w") as f:
+                f.writelines(f"{p}\n" for p in sorted(res) if res[p]["status"] == st)
+        print(f"lists -> {args.write_lists}/fmb_{{false,true,unknown}}.txt")
+
+
 # -------------------------------------------------------------------- keep
 
 def cmd_keep(args) -> None:
@@ -872,13 +974,26 @@ def main() -> None:
     sm.add_argument("--count-problems", action="store_true",
                     help="count distinct problems (needs memory for all names)")
     sm.add_argument("--write-lists", default="", metavar="DIR")
+    fm = sub.add_parser("fmb", help="Vampire finite model builder: countermodel search")
+    fm.add_argument("manifest", help="manifest.jsonl from `write`")
+    fm.add_argument("--out", required=True, help="results (.tsv)")
+    fm.add_argument("--vampire", default=os.environ.get("VAMPIRE_PATH", "vampire"))
+    fm.add_argument("--limit", type=int, default=60, help="seconds per problem")
+    fm.add_argument("--workers", type=int, default=0, help="default: available CPUs")
+    fm.add_argument("--resume", action="store_true")
+    fr = sub.add_parser("fmb-report", help="summary of fmb results")
+    fr.add_argument("results", nargs="+", help="fmb .tsv files")
+    fr.add_argument("--triage", nargs="*", default=[], help="nt.expand base output (.jsonl)")
+    fr.add_argument("--max-cps", type=int, default=1_000_000,
+                    help="the triage's CP budget (to tell saturation from the limit)")
+    fr.add_argument("--write-lists", default="", metavar="DIR")
     k = sub.add_parser("keep", help="after triage: keep only problems with proofs")
     k.add_argument("runs", help="nt.expand base output whose problems are in a temporary dir")
     k.add_argument("--to", required=True, help="persistent problem directory (gets ETP/)")
     args = ap.parse_args()
     {"build": cmd_build, "write": cmd_write, "check": cmd_check,
      "report": cmd_report, "keep": cmd_keep, "compact": cmd_compact,
-     "summarize": cmd_summarize}[args.cmd](args)
+     "summarize": cmd_summarize, "fmb": cmd_fmb, "fmb-report": cmd_fmb_report}[args.cmd](args)
 
 
 if __name__ == "__main__":
