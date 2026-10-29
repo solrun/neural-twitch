@@ -10,7 +10,8 @@
 # problems go to node-local $TMPDIR and no proofs are kept, so nothing counts
 # against the home quota.
 # Options (--export=ALL,...):
-#   TIERS      comma-separated subset of degenerate,hasse,closure,equiv (default all)
+#   TIERS      subset of degenerate:hasse:closure:equiv, separated by ':' (sbatch's
+#              --export splits at commas), e.g. TIERS=degenerate:hasse:equiv; default all
 #   MAX_CPS    CP budget per run (default 1000000)
 #   WALL       wall cap in seconds per run (default 300)
 #   NAME       output prefix (default triage)

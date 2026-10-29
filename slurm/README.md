@@ -144,7 +144,8 @@ python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
 ```
 
 Defaults: 1M CPs and 300 s per run, all tiers. To start with the smaller
-tiers: `--export=ALL,TIERS=degenerate,hasse,equiv` (8,269 problems). The
+tiers: `--export=ALL,TIERS=degenerate:hasse:equiv` (8,269 problems; separate
+tiers with `:`, since `--export` splits at commas). The
 report splits each tier into trivial (every setting proves it under 10k CPs),
 label and hard. With `NT_STORE`, the rows' paths and proofs stay valid, so
 `nt.expand abstract out/etp/triage_*.jsonl` can follow directly (it skips

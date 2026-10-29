@@ -43,7 +43,7 @@ the pair with the fewest operations in total (lowest numbers on ties).
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
       --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp
   # problem files for some tiers, optionally one shard of them
-  python -m nt.etp write data/etp --tiers degenerate,hasse --out-dir $TMPDIR/etp --shard 3/16
+  python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
   # truth of existing ETP problem files (e.g. Twitch's ETP_UEQ_UNSAT)
@@ -286,7 +286,8 @@ def read_selection(data_dir: str) -> list[dict]:
 def cmd_write(args) -> None:
     laws = load_laws(os.path.join(args.data_dir, "laws.tsv"))
     rows = read_selection(args.data_dir)
-    tiers = set(args.tiers.split(",")) if args.tiers else set(TIERS)
+    # ':' as well as ',': sbatch --export splits its argument at commas
+    tiers = set(filter(None, re.split(r"[,:+\s]+", args.tiers))) if args.tiers else set(TIERS)
     if tiers - set(TIERS):
         raise SystemExit(f"unknown tiers {sorted(tiers - set(TIERS))}; known: {TIERS}")
     rows = [r for r in rows if r["tier"] in tiers]
@@ -398,7 +399,7 @@ def main() -> None:
     w = sub.add_parser("write", help="problem files and a manifest for nt.expand base")
     w.add_argument("data_dir", nargs="?", default="data/etp")
     w.add_argument("--out-dir", required=True)
-    w.add_argument("--tiers", default="", help=f"comma-separated subset of {','.join(TIERS)}")
+    w.add_argument("--tiers", default="", help=f"subset of {','.join(TIERS)}, separated by ',' or ':'")
     w.add_argument("--problems", default="", help="file with problem names to keep")
     w.add_argument("--sample", type=int, default=0, help="random N problems (fixed by --seed)")
     w.add_argument("--seed", type=int, default=0)
