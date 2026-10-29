@@ -108,9 +108,9 @@ hard problem.
 
 ## Conclusion
 
-39,713 true implications, including every one ETP proved on its own (all
-1,507 Vampire proofs and all hand-written positive results), and not one
-needs 10k CPs. Below that, hint ratios mean little
+39,713 true implications, including 1,587 of the 1,613 that ETP proved on
+their own (Vampire and by hand; the other 26 are in the part of the random
+tier not run yet), and not one needs 10k CPs. Below that, hint ratios mean little
 (DEFAULT_MIN_CPS), so ETP's positive implications give neither labels nor
 hard problems for Twee, and ETP cannot serve as the leave-domain-out test
 as planned. What remains of ETP's difficulty is in the refutations (finite
