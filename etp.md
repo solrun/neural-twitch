@@ -115,6 +115,41 @@ is trivial for Twee (known tier).
   1571 => 4656. The other 1,063 are in the tiers above (27 in the random
   tier), so every pair ETP proved on its own has now been run: all trivial.
 
+## Consistency with the literature
+
+- **ETP paper** (Bolan et al., *The Equational Theories Project: Advancing
+  Collaborative Mathematical Research at Scale*, Dec 2025, arXiv:2512.07087).
+  The counts match the matrix as we read it: 8,178,279 true, 13,855,357
+  false, and 10,657 positive / 586,925 negative implications formalized
+  directly (our codes 4 / -4), the rest by transitivity and duality
+  (Sect. 1.3, 3). ATPs "could be deployed at extremely fast speeds to
+  establish a complete generating set of positive implications" (1.3),
+  "the positive implications in the main implication graph of the project
+  were all simple enough that we did not need a semi-automatic approach for
+  them" (7.2), and "more challenging were the 13 855 357 (62.88%)
+  implications that were false" (1.3); the hardest result, E1729 ⊭ E817,
+  is a refutation that took months.
+- **Prover9** (7.3.5): proves all positive implications between laws of
+  order up to 4 with max_weight 55; with default parameters "all
+  consequences of each equation can be proven in at most 1 second per
+  equation, with the exception of laws E450 and E650 (and their duals),
+  which take somewhat longer" (details in the Zulip thread "Which
+  implications are harder for ATPs"). **This matches Twee:** hypothesis 450
+  is the second most expensive in our triage (about 6,400 CPs whatever the
+  conclusion), and 650 => 448 has the third longest Vampire proof in ETP
+  (65 steps); in our runs both stay under 10k CPs.
+- **Vampire** (Janota, *Experimental Results for Vampire on the Equational
+  Theories Project*, arXiv:2508.15856, cited as [40]): Vampire 5.0 proves
+  all 8,173,585 non-reflexive true implications, all but 2,390 (99.97%)
+  within 500 instructions, and "the challenge lies [in] the implications
+  that need to be refuted". It leaves 1,062 implications undecided (310
+  apparently needing infinite models). Twitch's 1,027 "unknown" problems,
+  generated in the same month (2025-08-02) and all false, are probably close
+  to that set (not checked). The 2,390 Vampire-hard true implications are
+  in the paper's Zenodo record (doi:10.5281/zenodo.16910288) and have not
+  been run here as such.
+- Twee is not discussed in either paper.
+
 ## Conclusion
 
 129,713 true implications (all class representatives, 100,000 random pairs,
