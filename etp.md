@@ -136,7 +136,7 @@ is trivial for Twee (known tier).
   which take somewhat longer" (details in the Zulip thread "Which
   implications are harder for ATPs"). **This matches Twee:** hypothesis 450
   is the second most expensive in our triage (about 6,400 CPs whatever the
-  conclusion), and 650 => 448 has the third longest Vampire proof in ETP
+  conclusion), and 650 => 448 has the fourth longest Vampire proof in ETP
   (65 steps); in our runs both stay under 10k CPs.
 - **Vampire** (Janota, *Experimental Results for Vampire on the Equational
   Theories Project*, arXiv:2508.15856, cited as [40]): Vampire 5.0 proves
