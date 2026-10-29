@@ -130,7 +130,7 @@ partial one from a job that was cut off.
 ## ETP triage
 
 `data/etp` holds the true ETP implications selected by `nt.etp build`
-(131,879 problems in seven tiers; see `nt/etp.py` and `etp.md`). The job runs
+(151,763 problems in eight tiers, plus `all`; see `nt/etp.py` and `etp.md`). The job runs
 plain Twee under both flattening settings, on problems written to node-local
 `$TMPDIR`. With `NT_STORE` set in `slurm/vera.env` (project storage), proofs
 of at least 10k CPs go to `$NT_STORE/etp/proofs`, the problems with such a

@@ -12,7 +12,8 @@
   "equiv": 2053,
   "random": 100000,
   "known": 550,
-  "vampire_hard": 2166
+  "vampire_hard": 2166,
+  "pairs": 19884
  },
  "explicit_by_tier": {
   "degenerate": 227,
@@ -27,6 +28,13 @@
   "hasse": 3169,
   "equiv": 176,
   "known": 41
+ },
+ "pairs": {
+  "hypothesis_pairs": 4000,
+  "per_pair": 5,
+  "seed": 0,
+  "filter_magmas": 29699,
+  "size4": 10000
  },
  "source": "export_raw_implications_10_23_2026.csv",
  "random": {

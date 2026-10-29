@@ -313,7 +313,7 @@ def write_bits(M, path: str) -> None:
     """Two bit planes (true, explicitly proved) of the n x n matrix, row-major,
     gzipped. Small (about 3 MB) and readable without numpy."""
     import numpy as np
-    with gzip.open(path, "wb") as f:
+    with gzip.GzipFile(path, "wb", mtime=0) as f:      # mtime 0: reproducible bytes
         f.write(len(M).to_bytes(4, "little"))
         f.write(np.packbits((M > 0).ravel()).tobytes())
         f.write(np.packbits((M == 4).ravel()).tobytes())
@@ -556,9 +556,10 @@ def cmd_build(args) -> None:
         for i in range(1, n + 1):
             f.write(f"{i}\t{cls[i - 1]}\t{laws[i]['size']}\t{laws[i]['formula']}\n")
     rows.sort(key=lambda r: (TIERS.index(r["tier"]), r["hyp"], r.get("hyp2") or 0, r["concl"]))
-    with gzip.open(os.path.join(args.out_dir, "implications.jsonl.gz"), "wt") as f:
+    with gzip.GzipFile(os.path.join(args.out_dir, "implications.jsonl.gz"), "wb",
+                       mtime=0) as f:
         for r in rows:
-            f.write(json.dumps(r) + "\n")
+            f.write((json.dumps(r) + "\n").encode())
     stats["source"] = os.path.basename(args.implications)
     stats["random"] = {"size": args.random, "seed": args.seed}
     with open(os.path.join(args.out_dir, "stats.json"), "w") as f:

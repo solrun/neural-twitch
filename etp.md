@@ -35,6 +35,7 @@ transitive reduction has 4,721 edges, every one with an explicit ETP proof.
 | equiv | 2,053 | a cycle a1 => a2 => … => a1 within each class |
 | random | 100,000 | random true pairs (seed 0), hypothesis not degenerate, no pure instances, none of the above |
 | known | 550 | pairs with a Vampire or hand-written proof in ETP (`data/etp/known.tsv`, from ETP commit 2f49bda), not in the tiers above: 506 from Vampire, 42 from `Subgraph.lean`, 1571 => 3167 and 4656 |
+| pairs | 19,884 | two laws as hypotheses, E1 and E2 => E3, neither implying E3 alone; truth unknown (below) |
 | vampire_hard | 2,166 | pairs Janota's Vampire runs proved only with the 600 s limit (`data/etp/vampire_hard.tsv`), not in the tiers above; hypotheses 650 and 2923 only |
 
 For a class pair, the representative is an explicitly proved pair if there
@@ -211,6 +212,36 @@ process startup. All 131,879 problems:
   schedule of strategies, so its 30 s is mostly time on strategies that fail
   (a single good strategy would be much faster); 3,244 easy ones were
   solved by Vampire's finite model builder run.
+
+## Pairs tier: two-law hypotheses (2026-10-29)
+
+ETP's true implications are too easy, and its false ones have nothing to
+prove. ETP only covers single laws, so the pairs tier strengthens the
+hypothesis instead: **E1 and E2 => E3**, where in ETP neither E1 => E3 nor
+E2 => E3 holds. Such problems are new, have two axioms (more critical
+pairs), and are far more numerous; but their truth is unknown.
+
+**Small-magma filter.** Every law is evaluated in all magmas of size 2 (16)
+and 3 (19,683) and 10,000 random ones of size 4: 29,699 magmas
+(`nt.etp.satisfaction`, about 9 minutes). Checked against the ETP matrix,
+the filter is **sound** (it refutes no true implication) and refutes **98.1%**
+of the false single-law implications (ETP's own hand-picked magmas of size
+at most 4 got 99.3%).
+
+**Selection** (`build --pairs 4000 --pairs-per 5`, seed 0): 4,000 random
+pairs E1, E2 of incomparable, non-degenerate laws that some filter magma
+satisfies together (so their conjunction is not x = y), and for each up to
+5 random conclusions E3 (not x = x) that no filter magma refutes: 19,884
+problems over 2,386 hypothesis laws and 3,063 conclusions. Named
+`ETP-<hyp>_<hyp2>_<concl>`, `code` null.
+
+**Caveat.** The filter is weak for pairs: the median pair of laws has only
+5 of the 29,699 magmas satisfying both, and a median of 627 conclusions per
+pair survive it. Many survivors are presumably false (needing larger or
+infinite countermodels). So in the triage only proofs count: proved ones
+with at least 10k CPs are labelling candidates; unproved ones are of unknown
+status and must not be treated as hard theorems (the mistake behind Twitch's
+ETP set).
 
 ## Conclusion
 
