@@ -1,0 +1,21 @@
+{
+ "laws": 4694,
+ "classes": 1415,
+ "degenerate_laws": 1496,
+ "true_offdiag": 8173585,
+ "explicit_true": 10657,
+ "class_implications": 25615,
+ "tiers": {
+  "degenerate": 1495,
+  "hasse": 4721,
+  "closure": 20894,
+  "equiv": 2053
+ },
+ "explicit_by_tier": {
+  "degenerate": 227,
+  "hasse": 4721,
+  "closure": 158,
+  "equiv": 458
+ },
+ "source": "export_raw_implications_10_23_2026.csv"
+}

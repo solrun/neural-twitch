@@ -127,6 +127,46 @@ Grafana is expected: runs that prove quickly free their cores while the rest
 run to the cap. `--report` prints the table from the output file, including a
 partial one from a job that was cut off.
 
+## ETP triage
+
+`data/etp` holds the true ETP implications selected by `nt.etp build` (29,163
+problems in four tiers; see `nt/etp.py`). The job runs plain Twee under both
+flattening settings. With `NT_STORE` set in `slurm/vera.env` (project
+storage), it writes the problems to `$NT_STORE/etp/problems` and keeps proofs
+in `$NT_STORE/etp/proofs`, so the label band needs no second run. Without
+it, each shard's problems go to `$TMPDIR` and no proofs are kept, so nothing
+counts against the home quota:
+
+```bash
+mkdir -p logs out/etp
+sbatch -A <project> --array=0-15 slurm/etp_triage.sbatch
+python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
+```
+
+Defaults: 1M CPs and 300 s per run, all tiers. To start with the smaller
+tiers: `--export=ALL,TIERS=degenerate,hasse,equiv` (8,269 problems). The
+report splits each tier into trivial (every setting proves it under 10k CPs),
+label and hard. With `NT_STORE`, the rows' paths and proofs stay valid, so
+`nt.expand abstract out/etp/triage_*.jsonl` can follow directly (it skips
+runs under its `--min-cps`). Without it, write the label band out again
+(`python -m nt.etp write --problems out/etp/lists/label.txt --out-dir <dir>`)
+and run `nt.expand base <dir>/manifest.jsonl` with proofs.
+`write`, `report` and `check` need only the standard library; `build` (run
+once, already done) needs numpy and pandas.
+
+## Project storage
+
+`NT_STORE` (in `slurm/vera.env`) points at the group's Cephyr NOBACKUP
+directory. Besides the ETP problems and proofs, it is the place for `out/`,
+whose proofs and Stitch outputs otherwise fill the home file quota. Move it
+once and link it back, so every script's `out/...` paths still work:
+
+```bash
+mkdir -p $NT_STORE && mv out $NT_STORE/out && ln -s $NT_STORE/out out
+```
+
+NOBACKUP is not backed up: commit label files to git.
+
 ## Notes
 
 * Extra script options go through `EXTRA_ARGS`, for example only one

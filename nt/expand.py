@@ -16,11 +16,14 @@ Three stages, each a subcommand:
              the result, and write the sets that `nt.single_runs --sets`
              reads.
 
-Typical flow, for the ETP problems shipped with Twitch and for hindsight
-subproblems of the TPTP problems:
+Typical flow, for ETP problems and for hindsight subproblems of the TPTP
+problems. (The ETP_UEQ_UNSAT problems shipped with Twitch are all false
+implications according to ETP, see `nt.etp check`; use problems written by
+`nt.etp write` instead.)
 
   # proofs
-  python -m nt.expand base $TWITCH_DIR/data/TPTP/ETP_UEQ_UNSAT --out out/expand/etp_base.jsonl
+  python -m nt.etp write --problems out/etp/lists/label.txt --out-dir out/etp/label
+  python -m nt.expand base out/etp/label/manifest.jsonl --out out/expand/etp_base.jsonl
   python -m nt.expand base $TWITCH_DIR/data/TPTP/*_UEQ_UNSAT --exclude ETP --out out/expand/tptp_base.jsonl
   # hindsight subproblems, then their proofs
   python -m nt.expand hindsight out/expand/tptp_base.jsonl --out-dir out/expand/hindsight
@@ -104,10 +107,12 @@ def read_rows(paths: list[str]) -> list[dict]:
 
 # -------------------------------------------------------------------- base
 
-def _base_job(prob, flatten, proof_dir, wall_timeout, schedule):
+def _base_job(prob, flatten, proof_dir, wall_timeout, schedule, max_cps=UNLIMITED):
+    """proof_dir "" runs without keeping proofs (triage)."""
     tag = "flat" if flatten else "noflat"
-    proof = os.path.join(proof_dir, prob["domain"], f"{prob['problem']}_{tag}.txt.gz")
-    r = twee.run(prob["path"], [], Setting(flatten_goal=flatten), UNLIMITED, wall_timeout,
+    proof = (os.path.join(proof_dir, prob["domain"], f"{prob['problem']}_{tag}.txt.gz")
+             if proof_dir else None)
+    r = twee.run(prob["path"], [], Setting(flatten_goal=flatten), max_cps, wall_timeout,
                  schedule=schedule, proof_path=proof)
     return {**prob, "flatten": flatten, "rep": 0, "schedule": schedule, **r.to_dict(),
             "proof": proof if r.status == "proved" else None}
@@ -166,8 +171,9 @@ def cmd_base(args) -> None:
           f"{args.wall_timeout}s, schedule {args.schedule}, {args.workers} workers", flush=True)
     t0, counts = time.monotonic(), collections.Counter()
     with open(args.out, mode) as out, ProcessPoolExecutor(args.workers) as ex:
-        futs = [ex.submit(_base_job, p, f, args.proof_dir, args.wall_timeout, args.schedule)
-                for p, f in jobs]
+        proof_dir = "" if args.no_proofs else args.proof_dir
+        futs = [ex.submit(_base_job, p, f, proof_dir, args.wall_timeout, args.schedule,
+                          args.max_cps) for p, f in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             counts[r["status"]] += 1
@@ -424,6 +430,10 @@ def main() -> None:
     b.add_argument("--exclude", default="", help="comma-separated domains to skip")
     b.add_argument("--flatten", choices=FLATTEN_MODES, default="both")
     b.add_argument("--wall-timeout", type=float, default=1000.0)
+    b.add_argument("--max-cps", type=int, default=UNLIMITED,
+                   help="CP budget (default unlimited); runs that hit it end as 'budget'")
+    b.add_argument("--no-proofs", action="store_true",
+                   help="don't keep proofs (triage: avoids one file per proved run)")
     b.add_argument("--schedule", default=twee.DEFAULT_SCHEDULE)
     b.add_argument("--workers", type=int, default=twee.default_workers())
     b.add_argument("--limit", type=int, default=0, help="first N problems by name")
