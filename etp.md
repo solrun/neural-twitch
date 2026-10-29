@@ -69,9 +69,21 @@ The non-instances were easy too (the degenerate tier has no instances, and
 all of it is trivial), so the representatives are cheap for Twee in general,
 not only because of instances.
 
+## Closure tier
+
+The full selection (all four tiers, 29,163 problems, 58,326 runs; same
+settings) is the same picture: **every run proved, every problem trivial**,
+max 6,918 CPs. The ten most expensive runs share three hypotheses: 3089
+(6,918 CPs, flattening on, for 3071, 3065, 3052), 450 (about 6,408, for 432,
+413, 426) and 3874 (6,175, flattening off, for 3660, 3659, 4068, 4065). The
+cost does not depend on the conclusion, so it lies in saturating those laws,
+not in the goal.
+
+So none of the 29,163 class representatives is useful for labels or as a
+hard problem.
+
 ## Next
 
-- Closure tier: running (2026-10-29).
 - The random tier is the search for hard problems: 100k problems x 2 settings
   at well under a second each is cheap. A sample first:
   `--export=ALL,TIERS=random,SAMPLE=10000`.
