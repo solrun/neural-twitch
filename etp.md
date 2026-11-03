@@ -268,9 +268,17 @@ is true; the 4 unknown just have no countermodel found in 60 s). Countermodels
 on a test sample were checked independently (`nt.etp.satisfaction`: both
 hypotheses hold, the conclusion fails).
 
-**Pairs tier in total:** 16,481 true (all trivial for Twee), 3,285 false,
-118 undecided (4 saturated, so presumably false; 114 open). No problem in
-the label band.
+**Proof search on the 118 undecided** (`nt.etp fmb --mode casc`: Vampire's
+CASC schedule, 600 s per problem, 2026-11-03): **none proved**; 7 refuted (the
+4 saturated ones and 3 open ones), 111 still undecided. Vampire finds no
+theorem among them that Twee missed.
+
+**Pairs tier in total:** 16,481 true (all trivial for Twee), 3,292 false,
+111 undecided (Twee: no proof within 1M CPs / 300 s and no saturation;
+Vampire: no countermodel in 60 s, nothing in 600 s of CASC). No problem in
+the label band, and no hard theorem found. By analogy with Twitch's ETP set
+(Vampire's undecided single-law implications, all false), the 111 are most
+likely false with large or infinite countermodels.
 
 ## All true implications (2026-10-29)
 
@@ -299,8 +307,9 @@ true ETP implication needs even 10k CPs, and 98.5% need fewer than 10.
 runs; total wall time about 59 hours). Only four need more than 10k CPs, all
 with hypothesis 2923 (the dual of 650) and only with goal flattening on
 (about 11,500 CPs; 65 without). Two-law hypotheses (pairs tier) do not
-change this: 16,481 of 19,884 true and trivial, none in between, 3,285
-shown false by countermodels, 118 undecided. Below 10k CPs hint ratios mean little
+change this: 16,481 of 19,884 true and trivial, none in between, 3,292
+shown false (Vampire), 111 undecided, of which neither Twee nor Vampire
+proves any. Below 10k CPs hint ratios mean little
 (DEFAULT_MIN_CPS), so ETP gives neither labels nor hard problems for Twee,
 and cannot serve as the leave-domain-out test as planned. This matches the
 ETP paper and Janota: the positive implications are easy for ATPs, the
