@@ -31,6 +31,7 @@ published with the Twitch paper
 | `nt/model/` | The generator in plain PyTorch: graph encoder, pointer decoder, scorer (`net.py`), data loading (`data.py`), training with a `--smoke` self-test (`train.py`), and prediction of sets for Twee (`predict.py`). |
 | `slurm/arrhenius/` | Apptainer recipe (NVIDIA PyTorch, arm64) and GPU job script for Arrhenius. |
 | `nt/analyze_single.py` | Report on the single-abstraction runs: do abstractions help alone, can a set be predicted from its members, are labels stable across settings, do ratios agree with Twitch. `--labels-out` writes per-abstraction training labels. |
+| `nt/expand.py` | Grows the dataset: baseline runs with proofs, hindsight subproblems from proof lemmas, Twitch/Stitch abstraction sets, and (`mine`, `mine-report`) subproblems from rules in Twee's search logs, including failed runs on hard problems. |
 | `nt/calibrate.py` | Baseline runs that check CP determinism and pick the `--max-cps` budget for `nt/single_runs.py`. |
 | `nt/calibrate_report.py` | Combined calibration report over several output files (e.g. job-array shards). |
 | `slurm/` | Job scripts and setup guide for the Vera cluster (`slurm/README.md`). |
@@ -293,6 +294,49 @@ cat out/single_expand_*.jsonl > out/single_expand.jsonl
 first experiment the three weight settings gave closely agreeing labels, and
 factor 0.5 agrees best with cost 1 (Spearman 0.87–0.89), so one setting keeps
 nearly all the information at a third of the cost.
+
+### Mining failed runs
+
+Hindsight needs a proof; mining needs only a search. Every rule Twee creates
+is a valid equation over the axioms, so a long failed run on a hard problem
+still yields provable goals in that problem's theory. Rules created late are
+the candidates for goals that are hard to reprove from scratch.
+
+| Stage | What it does |
+|---|---|
+| `base --log-dir` | Runs Twee without `--quiet` and keeps its whole output, gzipped: every rule with its id as it is created, every deletion, the final rewrite system. `--only FILE...` restricts the inputs to named problems. A run killed at the wall cap keeps what it printed. |
+| `mine` | Reads the logs and keeps rules created after `--min-lateness` (default 0.5) of the run's rules, still active at the end, over the axioms' own symbols, not axioms, at most `--max-size` symbols (40); duplicates across runs keep the latest. Picks `--per-problem` (20) per source, spread evenly over lateness, and writes them like `hindsight` (suffix `_mnK`) with a manifest recording rule id, lateness and source run. |
+| `mine-report` | Joins the manifest with `base` runs on it: trivial / label / unproved counts per lateness bucket, the label band's CP range, and how many sources yield any label-band goal. |
+
+```bash
+T=$HOME/ijcar26-twee_abstractions/data/TPTP
+# 1. search logs of the 125 hard problems, 6M CPs, both flattening settings
+sbatch --array=0-7 --export=ALL,NAME=hardlog,INPUTS="$T/*_UEQ_UNSAT data/tptp_extra/*_UEQ_UNSAT",\
+EXTRA_ARGS="--only data/hard_problems.txt data/tptp_extra/hard_extra.txt --log-dir out/expand/logs --no-proofs --max-cps 6000000 --wall-timeout 3600" \
+    slurm/expand_base.sbatch
+cat out/expand/hardlog_base_*.jsonl > out/expand/hardlog.jsonl
+# 2. candidate goals (login node)
+python -m nt.expand mine out/expand/hardlog.jsonl --out-dir out/expand/mined --show-dropped 3
+# 3. reprove from scratch, keeping proofs of label-band goals for `abstract`
+sbatch --array=0-7 --export=ALL,NAME=mined,INPUTS=out/expand/mined/manifest.jsonl,\
+EXTRA_ARGS="--max-cps 6000000 --proof-min-cps 10000" slurm/expand_base.sbatch
+cat out/expand/mined_base_*.jsonl > out/expand/mined_base.jsonl
+python -m nt.expand mine-report out/expand/mined/manifest.jsonl out/expand/mined_base.jsonl
+```
+
+The label share by lateness decides whether this scales: if late rules
+reprove in the label band, raise `--per-problem` or switch to
+`--pick latest`; if they are mostly trivial, Twee finds them cheaply whatever
+the goal, and the generator needs to differ from the solver (another prover
+or ordering) to produce hard goals.
+
+Without `--quiet` Twee allocates while printing its progress, which under
+`--deterministic-alloc` moves the housekeeping schedule: a logged run is
+reproducible, but not identical to the quiet run of the same problem.
+Mined problems share their source's axioms, so they belong to its
+axiomatization in the splits. Mined from the hard set, they are training data
+in the hard problems' own theories: a test-time-training result, to be
+reported apart from transfer.
 
 ## Preparing the training data
 

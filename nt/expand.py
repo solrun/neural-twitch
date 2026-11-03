@@ -36,6 +36,37 @@ implications according to ETP, see `nt.etp check`; use problems written by
 
 `abstract` needs Twitch's code (TWITCH_DIR) and its Python dependencies
 stitch_core and python-dotenv.
+
+Two more stages mine Twee's search instead of its proofs (hindsight from
+failed runs, as in Aygun et al.'s hindsight experience replay): every rule
+Twee creates is a valid equation over the axioms, so long unsuccessful runs
+on hard problems still yield provable goals over those axioms.
+
+  mine         Read search logs (`base --log-dir`, which runs Twee without
+               --quiet), keep rules created late in the run, still active at
+               the end, and over the axioms' own symbols, and write them as
+               problems like `hindsight` does.
+  mine-report  After reproving them with `base`, tabulate how many land in
+               the label band (proved, not trivial) against lateness.
+
+  # search logs of the 125 hard problems (Twee output is large: keep it gzipped)
+  python -m nt.expand base $TWITCH_DIR/data/TPTP/*_UEQ_UNSAT data/tptp_extra/*_UEQ_UNSAT \\
+      --only data/hard_problems.txt data/tptp_extra/hard_extra.txt \\
+      --log-dir out/expand/logs --no-proofs --max-cps 6000000 --wall-timeout 3600 \\
+      --out out/expand/hard_logs.jsonl
+  python -m nt.expand mine out/expand/hard_logs.jsonl --out-dir out/expand/mined
+  python -m nt.expand base out/expand/mined/manifest.jsonl --max-cps 6000000 \\
+      --proof-min-cps 10000 --out out/expand/mined_base.jsonl
+  python -m nt.expand mine-report out/expand/mined/manifest.jsonl out/expand/mined_base.jsonl
+
+The proofs kept by the reprove step feed `abstract` as usual. Without
+--quiet Twee builds its progress messages during the search, and under
+--deterministic-alloc that allocation shifts the housekeeping schedule, so a
+logged run is deterministic but not identical to the quiet run of the same
+problem. Mined problems share their source's axioms: they belong to the
+source's axiomatization when splitting, and mined from hard problems they are
+training data over the hard set's own theories (test-time training), not
+evidence of transfer.
 """
 
 from __future__ import annotations
@@ -54,7 +85,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from nt import tptp, twee
 from nt.calibrate import UNLIMITED
 from nt.single_runs import FLATTEN_MODES
-from nt.terms import App, ParseError, canonical, normalize, parse, symbols
+from nt.terms import App, ParseError, canonical, normalize, parse, size, symbols
 from nt.twee import Setting
 
 DEFAULT_MIN_CPS = 10_000   # below this, housekeeping hardly runs and ratios say little
@@ -108,19 +139,28 @@ def read_rows(paths: list[str]) -> list[dict]:
 # -------------------------------------------------------------------- base
 
 def _base_job(prob, flatten, proof_dir, wall_timeout, schedule, max_cps=UNLIMITED,
-              proof_min_cps=0):
+              proof_min_cps=0, log_dir=""):
     """proof_dir "" runs without keeping proofs (triage); proofs found with
-    fewer than proof_min_cps CPs are deleted again."""
+    fewer than proof_min_cps CPs are deleted again. With log_dir, Twee's whole
+    search output is kept there (for nt.expand mine)."""
     tag = "flat" if flatten else "noflat"
     proof = (os.path.join(proof_dir, prob["domain"], f"{prob['problem']}_{tag}.txt.gz")
              if proof_dir else None)
+    log = (os.path.join(log_dir, prob["domain"], f"{prob['problem']}_{tag}.log.gz")
+           if log_dir else None)
     r = twee.run(prob["path"], [], Setting(flatten_goal=flatten), max_cps, wall_timeout,
-                 schedule=schedule, proof_path=proof)
+                 schedule=schedule, proof_path=proof, log_path=log)
     if proof and r.status == "proved" and r.cps < proof_min_cps:
         os.unlink(proof)
         proof = None
     return {**prob, "flatten": flatten, "rep": 0, "schedule": schedule, **r.to_dict(),
-            "proof": proof if r.status == "proved" else None}
+            "proof": proof if r.status == "proved" else None,
+            "log": log if log and os.path.exists(log) else None}
+
+
+def read_names(path: str) -> set[str]:
+    """Problem names, one per line; '#' starts a comment."""
+    return {l.split("#")[0].strip() for l in open(path)} - {""}
 
 
 def finished_runs(path: str, schedule: str) -> set:
@@ -153,6 +193,13 @@ def cmd_base(args) -> None:
     if args.exclude:
         skip = set(args.exclude.split(","))
         probs = [p for p in probs if p["domain"] not in skip]
+    if args.only:
+        names = set().union(*(read_names(f) for f in args.only))
+        missing = names - {p["problem"] for p in probs}
+        probs = [p for p in probs if p["problem"] in names]
+        if missing:
+            print(f"--only: {len(missing)} names not among the inputs, e.g. "
+                  f"{sorted(missing)[:5]}", flush=True)
     if args.sample:
         # a fixed random subset: --limit takes the first problems by name,
         # which for ETP all share the same hypothesis law
@@ -178,7 +225,7 @@ def cmd_base(args) -> None:
     with open(args.out, mode) as out, ProcessPoolExecutor(args.workers) as ex:
         proof_dir = "" if args.no_proofs else args.proof_dir
         futs = [ex.submit(_base_job, p, f, proof_dir, args.wall_timeout, args.schedule,
-                          args.max_cps, args.proof_min_cps) for p, f in jobs]
+                          args.max_cps, args.proof_min_cps, args.log_dir) for p, f in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             counts[r["status"]] += 1
@@ -225,12 +272,9 @@ def equation_key(lhs, rhs) -> str:
     return min(a, b)
 
 
-def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
-                         tptp_root: str | None, examples: dict | None = None
-                         ) -> tuple[list[dict], collections.Counter]:
-    """Up to per_problem distinct lemmas from the given proofs, latest in
-    the proof first, that are usable as standalone goals. If `examples` is
-    given, a few dropped lemmas are recorded there per reason."""
+def axiom_context(problem_path: str, tptp_root: str | None) -> tuple[dict, set]:
+    """(signature, keys of the axioms' equations) of a problem: what a
+    standalone goal may mention, and which equations are not new."""
     axioms = tptp.axiom_statements(problem_path, tptp_root)
     sig = tptp.signature(axioms)
     known = set()
@@ -241,6 +285,38 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
                 known.add(equation_key(parse(sides[0]), parse(sides[1])))
             except ParseError:
                 pass
+    return sig, known
+
+
+def check_goal(ls: str, rs: str, sig: dict, known: set):
+    """(reason, lhs, rhs, key): reason "" if the equation is usable as a
+    standalone goal over the axioms (parses, uses only the axioms' symbols,
+    is not trivial, not an axiom); otherwise why not."""
+    if "$" in ls + rs:
+        return "encoding symbol", None, None, ""
+    try:
+        l, r = parse(ls), parse(rs)
+    except ParseError as e:
+        return "unparsable", None, None, str(e)
+    used = dict(symbols(l)) | dict(symbols(r))
+    outside = sorted(f"{f}/{n}" for f, n in used.items() if sig.get(f) != n)
+    if outside:
+        return "symbol outside the axioms", None, None, ", ".join(outside)
+    if l == r:
+        return "trivial", None, None, ""
+    key = equation_key(l, r)
+    if key in known:
+        return "is an axiom", None, None, ""
+    return "", l, r, key
+
+
+def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
+                         tptp_root: str | None, examples: dict | None = None
+                         ) -> tuple[list[dict], collections.Counter]:
+    """Up to per_problem distinct lemmas from the given proofs, latest in
+    the proof first, that are usable as standalone goals. If `examples` is
+    given, a few dropped lemmas are recorded there per reason."""
+    sig, known = axiom_context(problem_path, tptp_root)
     why = collections.Counter()
     # latest lemmas first, alternating between the proofs (one per flattening
     # setting) so that both contribute
@@ -259,27 +335,11 @@ def hindsight_candidates(problem_path: str, proofs: list[str], per_problem: int,
     for _, pi, (num, ls, rs) in ranked:
         if len(picked) >= per_problem:
             break
-        if "$" in ls + rs:
-            why["encoding symbol"] += 1
-            continue
-        try:
-            l, r = parse(ls), parse(rs)
-        except ParseError as e:
-            why["unparsable"] += 1
-            note("unparsable", ls, rs, str(e))
-            continue
-        used = dict(symbols(l)) | dict(symbols(r))
-        outside = sorted(f"{f}/{n}" for f, n in used.items() if sig.get(f) != n)
-        if outside:
-            why["symbol outside the axioms"] += 1
-            note("symbol outside the axioms", ls, rs, ", ".join(outside))
-            continue
-        if l == r:
-            why["trivial"] += 1
-            continue
-        key = equation_key(l, r)
-        if key in known:
-            why["is an axiom"] += 1
+        reason, l, r, key = check_goal(ls, rs, sig, known)
+        if reason:
+            why[reason] += 1
+            if reason in ("unparsable", "symbol outside the axioms"):
+                note(reason, ls, rs, key)
             continue
         if key in seen:
             why["duplicate"] += 1
@@ -336,6 +396,244 @@ def cmd_hindsight(args) -> None:
             for e in exs[:args.show_dropped]:
                 print("  " + e)
     print(f"manifest: {manifest}")
+
+
+# -------------------------------------------------------------------- mine
+#
+# Hindsight from the search rather than the proof: every rule Twee derives is
+# a valid equation over the axioms, whether or not the run proves its goal,
+# so a failed run on a hard problem still yields provable goals. Rules created
+# late in a long run are the candidates for goals that are hard to reprove
+# from scratch; `mine-report` measures how many are.
+
+# "12. lhs -> rhs", optionally preceded by a score: "(0.5) 12. lhs -> rhs".
+_RULE_LINE = re.compile(r"^(?:\([^()\s]*\)\s+)?(\d+)\.\s+(\S.*)$")
+_DELETE_LINE = re.compile(r"^\s*\(delete rule (\d+)\)")
+_ARROWS = (" <-> ", " -> ", " ~> ", " = ")
+
+
+def split_rule(s: str) -> tuple[str, str] | None:
+    """(lhs, rhs) of a printed Twee rule; the arrow is the first one outside
+    parentheses ("->", "~>", "<->", or "=" for an unoriented rule)."""
+    depth = 0
+    for i, ch in enumerate(s):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch == " ":
+            for a in _ARROWS:
+                if s.startswith(a, i):
+                    return s[:i].strip(), s[i + len(a):].strip()
+    return None
+
+
+def parse_search_log(text: str) -> tuple[dict[int, tuple[str, str]], set[int]]:
+    """({rule id: (lhs, rhs)}, deleted ids) from Twee's non-quiet output.
+    A rule that the pretty printer wrapped continues on indented lines."""
+    rules, deleted, cur = {}, set(), None
+
+    def flush():
+        if cur is not None:
+            sides = split_rule(" ".join(" ".join(cur[1]).split()))
+            if sides:
+                rules[cur[0]] = sides
+
+    for line in text.splitlines():
+        m = _RULE_LINE.match(line)
+        if m:
+            flush()
+            cur = (int(m.group(1)), [m.group(2)])
+            continue
+        d = _DELETE_LINE.match(line)
+        if d:
+            flush()
+            cur = None
+            deleted.add(int(d.group(1)))
+            continue
+        if cur is not None and line[:1].isspace() and line.strip() \
+                and not line.lstrip().startswith("("):
+            cur[1].append(line)       # continuation of a wrapped rule
+            continue
+        flush()
+        cur = None
+    flush()
+    return rules, deleted
+
+
+def mine_candidates(problem_path: str, logs: list[dict], tptp_root: str | None,
+                    min_lateness: float, max_size: int, survivors_only: bool,
+                    examples: dict | None = None) -> tuple[list[dict], collections.Counter]:
+    """Distinct rules from the given search logs that are usable as
+    standalone goals, latest first. Lateness is the rule's id over the last
+    id created in its run (rule ids count up as Twee creates rules)."""
+    sig, known = axiom_context(problem_path, tptp_root)
+    why, best = collections.Counter(), {}
+    for row in logs:
+        rules, deleted = parse_search_log(twee.read_text(row["log"]))
+        if not rules:
+            why["empty log"] += 1
+            continue
+        last = max(rules)
+        for rid, (ls, rs) in rules.items():
+            late = rid / last
+            if late < min_lateness:
+                why["too early"] += 1
+                continue
+            if survivors_only and rid in deleted:
+                why["deleted later"] += 1
+                continue
+            reason, l, r, key = check_goal(ls, rs, sig, known)
+            if reason:
+                why[reason] += 1
+                if examples is not None and reason in ("unparsable", "symbol outside the axioms") \
+                        and len(examples.setdefault(reason, [])) < 8:
+                    examples[reason].append(f"{os.path.basename(problem_path)}: {ls} = {rs}   [{key}]")
+                continue
+            n = size(l) + size(r)
+            if max_size and n > max_size:
+                why["too large"] += 1
+                continue
+            if key in best:              # same equation, other run or re-created
+                why["duplicate"] += 1
+                if best[key]["lateness"] >= late:
+                    continue
+            best[key] = {"rule_id": rid, "last_id": last, "lateness": round(late, 4),
+                         "survived": rid not in deleted, "size": n, "lhs": ls, "rhs": rs,
+                         "key": key, "log": row["log"], "source_flatten": row["flatten"],
+                         "source_status": row["status"], "source_cps": row["cps"]}
+    cands = sorted(best.values(), key=lambda c: (-c["lateness"], c["key"]))
+    why["usable"] += len(cands)
+    return cands, why
+
+
+def pick(cands: list, k: int, how: str) -> list:
+    """The k latest candidates, or k spread evenly over the list (which is
+    sorted latest first), so that reproving covers the whole lateness range."""
+    if len(cands) <= k:
+        return list(cands)
+    if how == "latest":
+        return cands[:k]
+    step = (len(cands) - 1) / (k - 1) if k > 1 else 0
+    return [cands[round(i * step)] for i in range(k)]
+
+
+def cmd_mine(args) -> None:
+    rows = [r for r in read_rows(args.base) if r.get("log")]
+    if args.unsolved_only:
+        rows = [r for r in rows if r["status"] != "proved"]
+    by_problem = collections.defaultdict(list)
+    for r in rows:
+        by_problem[r["problem"]].append(r)
+    os.makedirs(args.out_dir, exist_ok=True)
+    manifest = os.path.join(args.out_dir, "manifest.jsonl")
+    why_total, n, examples = collections.Counter(), 0, {}
+    with open(manifest, "w") as man:
+        for prob in sorted(by_problem):
+            rs = by_problem[prob]
+            src = rs[0]
+            try:
+                cands, why = mine_candidates(src["path"], rs, args.tptp_root, args.min_lateness,
+                                             args.max_size, not args.keep_deleted, examples)
+            except FileNotFoundError as e:
+                print(f"{prob}: {e}", file=sys.stderr)
+                why_total["missing include"] += 1
+                continue
+            why_total.update(why)
+            chosen = pick(cands, args.per_problem, args.pick)
+            print(f"{prob}: {why['usable']} usable rules, {len(chosen)} picked "
+                  f"(lateness {chosen[-1]['lateness'] if chosen else '-'}"
+                  f"..{chosen[0]['lateness'] if chosen else '-'})", flush=True)
+            for k, c in enumerate(chosen, 1):
+                pid = f"{prob}_mn{k}"
+                path = os.path.abspath(os.path.join(args.out_dir, src["domain"], f"{pid}.p"))
+                comment = (f"Mined subproblem of {prob}: rule {c['rule_id']} of {c['last_id']} "
+                           f"in a Twee run ({c['source_status']}, flattening "
+                           f"{'on' if c['source_flatten'] else 'off'}),\nas a standalone goal.\n"
+                           f"{c['lhs']} = {c['rhs']}")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w") as f:
+                    f.write(tptp.with_goal(src["path"], c["lhs"], c["rhs"], comment,
+                                           tptp_root=args.tptp_root))
+                man.write(json.dumps({"problem": pid, "path": path, "domain": src["domain"],
+                                      "source": prob, "lemma": f"{c['lhs']} = {c['rhs']}",
+                                      **{k2: c[k2] for k2 in (
+                                          "rule_id", "last_id", "lateness", "survived", "size",
+                                          "source_flatten", "source_status", "source_cps", "log")}})
+                          + "\n")
+                n += 1
+    print(f"{len(by_problem)} source problems with logs; wrote {n} subproblems to {args.out_dir}")
+    print("rule filter:", dict(why_total.most_common()))
+    if args.show_dropped:
+        for reason, exs in examples.items():
+            print(f"\nexamples, {reason}:")
+            for e in exs[:args.show_dropped]:
+                print("  " + e)
+    print(f"manifest: {manifest}")
+
+
+def reprove_band(runs: list[dict], min_cps: int) -> str:
+    """'label' if some setting proves the goal and it is not trivial (every
+    setting proving it with fewer than min_cps CPs), 'trivial', or
+    'unproved'; the same bands as the ETP and TPTP triage."""
+    proved = [r for r in runs if r["status"] == "proved"]
+    if not proved:
+        return "unproved"
+    if len(proved) == len(runs) and all(r["cps"] < min_cps for r in proved):
+        return "trivial"
+    return "label"
+
+
+def cmd_mine_report(args) -> None:
+    man = {r["problem"]: r for r in read_rows([args.manifest])}
+    runs = collections.defaultdict(list)
+    for r in read_rows(args.base):
+        if r["problem"] in man and r["status"] != "error":
+            runs[r["problem"]].append(r)
+    missing = len(man) - len(runs)
+    bands = ("trivial", "label", "unproved")
+    edges = [round(x, 2) for x in args.buckets]
+    table = collections.defaultdict(collections.Counter)
+    per_source = collections.defaultdict(collections.Counter)
+    by_band = collections.defaultdict(list)
+    for pid, rs in runs.items():
+        m = man[pid]
+        b = reprove_band(rs, args.min_cps)
+        lo = max([e for e in edges if e <= m["lateness"]], default=0.0)
+        table[lo][b] += 1
+        per_source[m["source"]][b] += 1
+        best = min((r["cps"] for r in rs if r["status"] == "proved"), default=None)
+        by_band[b].append(best)
+
+    print(f"# Mined subproblems: reproving from scratch\n")
+    print(f"{len(runs)} of {len(man)} subproblems reproved"
+          + (f" ({missing} without runs yet)" if missing else "")
+          + f"; bands: trivial = every setting under {args.min_cps:,} CPs, "
+            "label = proved but not trivial, unproved = no setting proves it.\n")
+    print("| lateness from | " + " | ".join(bands) + " | label share |")
+    print("|---|" + "---|" * (len(bands) + 1))
+    for lo in sorted(table):
+        c = table[lo]
+        tot = sum(c.values())
+        print(f"| {lo:.2f} | " + " | ".join(str(c[b]) for b in bands)
+              + f" | {c['label'] / tot:.0%} |")
+    tot = collections.Counter()
+    for c in table.values():
+        tot.update(c)
+    print(f"| all | " + " | ".join(str(tot[b]) for b in bands)
+          + f" | {tot['label'] / max(1, sum(tot.values())):.0%} |\n")
+    lab = sorted(x for x in by_band["label"] if x is not None)
+    if lab:
+        print(f"Label band, CPs of the cheaper proving setting: median {lab[len(lab) // 2]:,}, "
+              f"max {lab[-1]:,}.\n")
+    srcs_with = sum(1 for c in per_source.values() if c["label"])
+    print(f"Source problems with at least one label-band subproblem: {srcs_with} of "
+          f"{len(per_source)}.\n")
+    if args.per_source:
+        print("| source | " + " | ".join(bands) + " |")
+        print("|---|" + "---|" * len(bands))
+        for s in sorted(per_source):
+            print(f"| {s} | " + " | ".join(str(per_source[s][b]) for b in bands) + " |")
 
 
 # ---------------------------------------------------------------- abstract
@@ -433,6 +731,12 @@ def main() -> None:
     b.add_argument("--out", required=True)
     b.add_argument("--proof-dir", default="out/expand/proofs")
     b.add_argument("--exclude", default="", help="comma-separated domains to skip")
+    b.add_argument("--only", nargs="+", default=[], metavar="FILE",
+                   help="run only the problems named in these files (one per line, "
+                        "e.g. data/hard_problems.txt)")
+    b.add_argument("--log-dir", default="",
+                   help="keep Twee's whole search output here (runs without --quiet), "
+                        "for nt.expand mine")
     b.add_argument("--flatten", choices=FLATTEN_MODES, default="both")
     b.add_argument("--wall-timeout", type=float, default=1000.0)
     b.add_argument("--max-cps", type=int, default=UNLIMITED,
@@ -463,6 +767,35 @@ def main() -> None:
     h.add_argument("--show-dropped", type=int, default=0, metavar="N",
                    help="print up to N dropped lemmas per reason")
     h.set_defaults(func=cmd_hindsight)
+
+    m = sub.add_parser("mine", help="rules from Twee's search logs as new problems")
+    m.add_argument("base", nargs="+", help="output of the base stage, run with --log-dir")
+    m.add_argument("--out-dir", required=True)
+    m.add_argument("--per-problem", type=int, default=20, help="subproblems per source problem")
+    m.add_argument("--pick", choices=["spread", "latest"], default="spread",
+                   help="spread: evenly over the usable rules from --min-lateness on "
+                        "(to measure how lateness predicts difficulty); latest: the latest")
+    m.add_argument("--min-lateness", type=float, default=0.5,
+                   help="only rules created after this fraction of the run's rules")
+    m.add_argument("--max-size", type=int, default=40,
+                   help="drop equations with more symbols than this, both sides together "
+                        "(0: no limit)")
+    m.add_argument("--keep-deleted", action="store_true",
+                   help="also use rules Twee later deleted (simplified or subsumed)")
+    m.add_argument("--unsolved-only", action="store_true",
+                   help="only logs of runs that did not prove their goal")
+    m.add_argument("--tptp-root", default=os.environ.get("TPTP_ROOT"))
+    m.add_argument("--show-dropped", type=int, default=0, metavar="N")
+    m.set_defaults(func=cmd_mine)
+
+    mr = sub.add_parser("mine-report", help="how hard mined subproblems are to reprove")
+    mr.add_argument("manifest", help="manifest.jsonl written by mine")
+    mr.add_argument("base", nargs="+", help="base-stage runs on that manifest")
+    mr.add_argument("--min-cps", type=int, default=DEFAULT_MIN_CPS)
+    mr.add_argument("--buckets", type=float, nargs="+",
+                    default=[0.5, 0.6, 0.7, 0.8, 0.9, 0.95], help="lateness bucket edges")
+    mr.add_argument("--per-source", action="store_true", help="also a table per source problem")
+    mr.set_defaults(func=cmd_mine_report)
 
     a = sub.add_parser("abstract", help="Twitch/Stitch abstraction sets from proofs")
     a.add_argument("base", nargs="+", help="output of the base stage")

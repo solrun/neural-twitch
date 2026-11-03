@@ -185,20 +185,20 @@ def _run_capped(cmd: list[str], wall_timeout: float) -> tuple[str, str]:
                          text=True, start_new_session=True)
     try:
         return p.communicate(timeout=wall_timeout)
-    except subprocess.TimeoutExpired:
-        _kill_group(p)
+    except subprocess.TimeoutExpired as e:
+        e.output = _kill_group(p)[0]    # what Twee printed before the kill
         raise
     except BaseException:  # e.g. KeyboardInterrupt: don't leave Twee behind
         _kill_group(p)
         raise
 
 
-def _kill_group(p: subprocess.Popen) -> None:
+def _kill_group(p: subprocess.Popen) -> tuple[str, str]:
     try:
         os.killpg(p.pid, signal.SIGKILL)
     except ProcessLookupError:
         pass
-    p.communicate()
+    return p.communicate()
 
 
 def run(problem_path: str, abstractions: list[str], setting: Setting,
@@ -206,7 +206,8 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         twee: str | None = None, tptp_root: str | None = None,
         extra_flags: list[str] | None = None,
         schedule: str | int | None = DEFAULT_SCHEDULE,
-        proof_path: str | None = None) -> RunResult:
+        proof_path: str | None = None,
+        log_path: str | None = None) -> RunResult:
     """Run Twee once under the given housekeeping schedule (see the module
     docstring). "none" runs Twee's normal CPU-time schedule, whose CP counts
     are not reproducible.
@@ -214,7 +215,12 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
     With proof_path, Twee prints its proof with the flags Twitch uses for
     abstraction extraction (--all-lemmas --show-peaks), and a proved run's
     output is written there (gzipped if the name ends in .gz). Proof
-    presentation happens after the search, so the CP count is unchanged."""
+    presentation happens after the search, so the CP count is unchanged.
+
+    With log_path, Twee runs without --quiet and its whole output is written
+    there whatever the outcome: every rule as it is created ("12. lhs -> rhs"),
+    every deletion, and for an unsolved run the final rewrite system
+    (nt.expand mine reads these). Printing does not change the search."""
     twee = twee or os.environ["TWEE_PATH"]
     tptp_root = tptp_root or os.environ.get("TPTP_ROOT", "")
     with open(problem_path) as f:
@@ -226,8 +232,9 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         tmp_path = tmp.name
     sched = schedule_flags(schedule)
     output_flags = ["--all-lemmas", "--show-peaks"] if proof_path else ["--no-proof"]
+    quiet = [] if log_path else ["--quiet"]
     cmd = [twee, tmp_path, *BASE_FLAGS, *sched, *setting.flags(),
-           "--max-cps", str(max_cps), "--print-stats", "--quiet", *output_flags,
+           "--max-cps", str(max_cps), "--print-stats", *quiet, *output_flags,
            *(extra_flags or [])]
     if tptp_root:
         cmd += ["--root", tptp_root]
@@ -236,6 +243,8 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         out, err = _run_capped(cmd, wall_timeout)
         wall = time.monotonic() - start
         stats = parse_stats(out)
+        if log_path:
+            write_text(log_path, out)
         if stats is None:
             return RunResult("error", None, None, None, wall, (err or out)[-2000:])
         status = ("proved" if stats["solved"]
@@ -246,7 +255,9 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
                          stats["active_rules"], wall,
                          allocated_bytes=stats["allocated_bytes"],
                          cpu_seconds=stats["cpu_seconds"])
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
+        if log_path and e.output:
+            write_text(log_path, e.output)
         return RunResult("timeout", None, None, None, time.monotonic() - start)
     finally:
         os.unlink(tmp_path)
