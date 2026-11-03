@@ -192,3 +192,26 @@ def test_bits_all_rows_compact_summarize(tmp_path):
         runs=[str(tmp_path / "t_0.tsv.gz")], min_cps=10_000, max_cps=1_000_000, show=5,
         count_problems=True, write_lists=str(tmp_path / "lists")))
     assert open(tmp_path / "lists" / "label.txt").read() == "ETP-3_5\n"
+
+
+def test_std_pairs_tier():
+    import numpy as np
+    formulas = ["X = X", "X = Y", "X = m(X, X)", "m(X, Y) = m(Y, X)",
+                "m(X, m(X, Y)) = m(m(Y, X), X)", "m(X, m(Y, Z)) = m(m(X, Y), Z)"]
+    n = len(formulas)
+    T = np.eye(n, dtype=bool); T[:, 0] = True; T[1, :] = True
+    M = np.where(T, 3, -3).astype(np.int8)
+    cls = etp.equivalence_classes(M > 0)
+    sat = etp.satisfaction(formulas, [etp.all_magmas(2), etp.all_magmas(3)])
+    std = {6: "associativity", 4: "commutativity"}
+    rows = etp.select_std_pairs(M, cls, sat, std, per_pair=2, seed=0, sizes=[0] * n,
+                                skip=set())
+    pairs = [(r["hyp"], r["hyp2"]) for r in rows]
+    assert len({r["problem"] for r in rows}) == len(rows)
+    # every row has a standard law as a hypothesis, named consistently
+    for r in rows:
+        names = {std[x] for x in (r["hyp"], r["hyp2"]) if x in std}
+        assert set(r["std_law"].split("+")) == names
+    # the pair of the two standard laws appears once
+    assert len({p for p in pairs if set(p) == {4, 6}}) <= 1
+    assert sum(1 for r in rows if set((r["hyp"], r["hyp2"])) == {4, 6}) <= 2

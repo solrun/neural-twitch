@@ -13,7 +13,8 @@
   "random": 100000,
   "known": 550,
   "vampire_hard": 2166,
-  "pairs": 19884
+  "pairs": 19884,
+  "std_pairs": 8093
  },
  "explicit_by_tier": {
   "degenerate": 227,
@@ -28,6 +29,15 @@
   "hasse": 3169,
   "equiv": 176,
   "known": 41
+ },
+ "std_pairs": {
+  "per_pair": 2,
+  "by_law": {
+   "associativity": 4918,
+   "commutativity+associativity": 2,
+   "commutativity": 3173
+  },
+  "hypothesis_pairs": 4048
  },
  "pairs": {
   "hypothesis_pairs": 4000,

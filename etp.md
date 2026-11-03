@@ -36,6 +36,7 @@ transitive reduction has 4,721 edges, every one with an explicit ETP proof.
 | random | 100,000 | random true pairs (seed 0), hypothesis not degenerate, no pure instances, none of the above |
 | known | 550 | pairs with a Vampire or hand-written proof in ETP (`data/etp/known.tsv`, from ETP commit 2f49bda), not in the tiers above: 506 from Vampire, 42 from `Subgraph.lean`, 1571 => 3167 and 4656 |
 | pairs | 19,884 | two laws as hypotheses, E1 and E2 => E3, neither implying E3 alone; truth unknown (below) |
+| std_pairs | 8,093 | the same with associativity (4512) or commutativity (43) as one hypothesis, paired with every incomparable law; truth unknown |
 | vampire_hard | 2,166 | pairs Janota's Vampire runs proved only with the 600 s limit (`data/etp/vampire_hard.tsv`), not in the tiers above; hypotheses 650 and 2923 only |
 
 For a class pair, the representative is an explicitly proved pair if there
@@ -294,6 +295,30 @@ Vampire: no countermodel in 60 s, nothing in 600 s of CASC). No problem in
 the label band, and no hard theorem found. By analogy with Twitch's ETP set
 (Vampire's undecided single-law implications, all false), the 111 are most
 likely false with large or infinite countermodels.
+
+## Standard-law pairs (std_pairs tier, 2026-11-03)
+
+Adding a standard law such as associativity to an ETP implication is a
+special case of the pairs tier (associativity is ETP law 4512,
+commutativity 43, idempotence 3), but the random sample hardly contains it:
+of its 4,000 hypothesis pairs, 2 contain associativity, 6 commutativity, 7
+idempotence. Associativity is the most likely source of difficulty for Twee
+(no AC handling; semigroup varieties are closer to the TPTP domains), so the
+std_pairs tier covers it systematically: **associativity and commutativity,
+each paired with every law incomparable with it** that can hold together
+with it in a filter magma, 2 conclusions each, same filter as the pairs tier
+(`build --std-pairs-per 2`).
+
+| standard law | problems | partner laws | filter magmas satisfying both (median) | candidates per pair (median) |
+|---|---|---|---|---|
+| associativity | 4,918 | 2,459 | 4 | 380 |
+| commutativity | 3,173 | 1,588 | 11 | 267 |
+| both (43 and 4512) | 2 | 1 | 69 | 15 |
+
+8,093 problems, named `ETP-<hyp>_<hyp2>_<concl>` like the pairs tier, with
+`std_law` recording which standard law(s). The filter is as weak as for the
+random pairs, so many will be false; triage, then countermodel and proof
+search on the open ones, as for the pairs tier.
 
 ## All true implications (2026-10-29)
 

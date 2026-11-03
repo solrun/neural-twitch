@@ -64,6 +64,11 @@ equivalent when each implies the other):
               each is unknown: only a proof settles it, and unproved ones
               must not be treated as hard theorems. Named
               ETP-<hyp>_<hyp2>_<concl>, code null.
+  std_pairs   the same with one hypothesis a standard law: associativity
+              (4512) and commutativity (43), each with every incomparable,
+              non-degenerate law that can hold together with it (build
+              --std-pairs-per K conclusions each). The random pairs tier
+              hardly contains these (2 and 6 of its 4,000 pairs).
 
 Every row has `instance`: the conclusion is a substitution instance of the
 hypothesis (either orientation), so one rewrite proves it. Implications into
@@ -75,7 +80,8 @@ the pair with the fewest operations in total (lowest numbers on ties).
   python -m nt.etp build --implications export_raw_implications_10_23_2026.csv \\
       --axioms axioms.tar.gz --conjectures conjectures.tar.gz --out-dir data/etp \\
       --random 100000 --known data/etp/known.tsv \\
-      --vampire-hard data/etp/vampire_hard.tsv --pairs 4000 --pairs-per 5
+      --vampire-hard data/etp/vampire_hard.tsv --pairs 4000 --pairs-per 5 \\
+      --std-pairs-per 2
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
   # after a triage run (slurm/etp_triage.sbatch): trivial / label / saturated / open per tier
@@ -108,7 +114,7 @@ import sys
 import tarfile
 
 TIERS = ("degenerate", "hasse", "closure", "equiv", "random", "known", "vampire_hard",
-         "pairs", "all")
+         "pairs", "std_pairs", "all")
 BITS_FILE = "matrix.bits.gz"   # true and explicit bit planes of the matrix, row-major
 CODES = {4: "explicit_proof_true", 3: "implicit_proof_true",
          -4: "explicit_proof_false", -3: "implicit_proof_false",
@@ -267,6 +273,47 @@ def satisfaction(formulas: list[str], magma_sets) -> "np.ndarray":
     return np.concatenate(cols, 1)
 
 
+class _PairPicker:
+    """Shared by the pairs and std_pairs tiers: for a hypothesis pair (a, b),
+    0-based, the conclusions E3 that neither law implies alone and that no
+    filter magma satisfying both refutes; up to per_pair of them, at random."""
+
+    def __init__(self, M, cls, sat, sizes):
+        import numpy as np
+        self.M, self.cls, self.sat, self.sizes = M, cls, sat, sizes
+        self.deg_cls, self.triv_cls = cls[EQ_X_EQ_Y - 1], cls[EQ_X_EQ_X - 1]
+        self.base = [i for i in range(len(M)) if cls[i] not in (self.deg_cls, self.triv_cls)]
+        self.not_sat = ~sat
+        self.usable_concl = np.array([c not in (self.deg_cls, self.triv_cls) for c in cls])
+
+    def comparable(self, a: int, b: int) -> bool:
+        return self.M[a, b] > 0 or self.M[b, a] > 0
+
+    def rows(self, a: int, b: int, per_pair: int, rng, tier: str, **extra) -> list[dict]:
+        import numpy as np
+        a, b = min(a, b), max(a, b)
+        both = self.sat[a] & self.sat[b]
+        if not both.any():
+            return []
+        refuted = self.not_sat[:, both].any(1)
+        M, cls, sizes = self.M, self.cls, self.sizes
+        cand = np.nonzero(self.usable_concl & (M[a] <= 0) & (M[b] <= 0) & ~refuted)[0]
+        cand = cand[(cand != a) & (cand != b)]
+        if len(cand) == 0:
+            return []
+        out = []
+        for c in rng.choice(cand, min(per_pair, len(cand)), replace=False):
+            c = int(c)
+            out.append({"problem": problem_name(a + 1, c + 1, b + 1), "hyp": a + 1,
+                        "hyp2": b + 1, "concl": c + 1, "tier": tier, "code": None,
+                        "hyp_class": int(cls[a]), "hyp2_class": int(cls[b]),
+                        "concl_class": int(cls[c]), "hyp_size": int(sizes[a]),
+                        "hyp2_size": int(sizes[b]), "concl_size": int(sizes[c]),
+                        "instance": False, "n_candidates": int(len(cand)),
+                        "magmas_satisfying_both": int(both.sum()), **extra})
+        return out
+
+
 def select_pairs(M, cls, sat, n_pairs: int, per_pair: int, seed: int,
                  sizes, formulas) -> list[dict]:
     """The pairs tier: E1 and E2 => E3 where neither law implies E3 alone.
@@ -275,38 +322,47 @@ def select_pairs(M, cls, sat, n_pairs: int, per_pair: int, seed: int,
     not x = x and no filter magma satisfies E1 and E2 but not E3. Truth is
     unknown: only a proof settles it."""
     import numpy as np
-    n = len(M)
-    deg_cls, triv_cls = cls[EQ_X_EQ_Y - 1], cls[EQ_X_EQ_X - 1]
-    base = [i for i in range(n) if cls[i] not in (deg_cls, triv_cls)]
-    not_sat = ~sat
-    usable_concl = np.array([cls[i] not in (deg_cls, triv_cls) for i in range(n)])
+    pick = _PairPicker(M, cls, sat, sizes)
     rng = np.random.default_rng(seed)
     rows, seen, tries = [], set(), 0
     while len(seen) < n_pairs:
         tries += 1
         if tries > 200 * n_pairs:
             break
-        a, b = sorted(int(x) for x in rng.choice(base, 2, replace=False))
-        if (a, b) in seen or M[a, b] > 0 or M[b, a] > 0:
+        a, b = sorted(int(x) for x in rng.choice(pick.base, 2, replace=False))
+        if (a, b) in seen or pick.comparable(a, b):
             continue
-        both = sat[a] & sat[b]
-        if not both.any():
-            continue
-        refuted = not_sat[:, both].any(1)
-        cand = np.nonzero(usable_concl & (M[a] <= 0) & (M[b] <= 0) & ~refuted)[0]
-        cand = cand[(cand != a) & (cand != b)]
-        if len(cand) == 0:
+        new = pick.rows(a, b, per_pair, rng, "pairs")
+        if not new:
             continue
         seen.add((a, b))
-        for c in rng.choice(cand, min(per_pair, len(cand)), replace=False):
-            c = int(c)
-            rows.append({"problem": problem_name(a + 1, c + 1, b + 1), "hyp": a + 1,
-                         "hyp2": b + 1, "concl": c + 1, "tier": "pairs", "code": None,
-                         "hyp_class": int(cls[a]), "hyp2_class": int(cls[b]),
-                         "concl_class": int(cls[c]), "hyp_size": int(sizes[a]),
-                         "hyp2_size": int(sizes[b]), "concl_size": int(sizes[c]),
-                         "instance": False, "n_candidates": int(len(cand)),
-                         "magmas_satisfying_both": int(both.sum())})
+        rows += new
+    return rows
+
+
+STD_LAWS = {4512: "associativity", 43: "commutativity"}   # ETP numbers
+
+
+def select_std_pairs(M, cls, sat, std_laws: dict[int, str], per_pair: int, seed: int,
+                     sizes, skip: set[str]) -> list[dict]:
+    """The std_pairs tier: each standard law S (e.g. associativity) with every
+    law E that is incomparable with it, not degenerate, and satisfiable
+    together with it in a filter magma; up to per_pair conclusions each, as
+    in the pairs tier. Problems already selected (skip) are left out."""
+    import numpy as np
+    pick = _PairPicker(M, cls, sat, sizes)
+    rng = np.random.default_rng(seed)
+    rows, seen = [], set()
+    for s_law in std_laws:
+        s = s_law - 1
+        for e in pick.base:
+            pair = (min(e, s), max(e, s))
+            if e == s or pick.comparable(e, s) or pair in seen:
+                continue
+            seen.add(pair)      # a pair of two standard laws only once, named after both
+            name = "+".join(std_laws[x + 1] for x in pair if x + 1 in std_laws)
+            rows += [r for r in pick.rows(e, s, per_pair, rng, "std_pairs", std_law=name)
+                     if r["problem"] not in skip]
     return rows
 
 
@@ -549,6 +605,17 @@ def cmd_build(args) -> None:
                                  [laws[i]["size"] for i in range(1, n + 1)], formulas)
         rows += pair_rows
         stats["tiers"]["pairs"] = len(pair_rows)
+        if args.std_pairs_per:
+            std_rows = select_std_pairs(M, cls, sat, STD_LAWS, args.std_pairs_per,
+                                        args.pairs_seed,
+                                        [laws[i]["size"] for i in range(1, n + 1)],
+                                        {r["problem"] for r in rows})
+            rows += std_rows
+            stats["tiers"]["std_pairs"] = len(std_rows)
+            stats["std_pairs"] = {
+                "per_pair": args.std_pairs_per,
+                "by_law": dict(collections.Counter(r["std_law"] for r in std_rows)),
+                "hypothesis_pairs": len({(r["hyp"], r["hyp2"]) for r in std_rows})}
         stats["pairs"] = {"hypothesis_pairs": len({(r["hyp"], r["hyp2"]) for r in pair_rows}),
                           "per_pair": args.pairs_per, "seed": args.pairs_seed,
                           "filter_magmas": int(sat.shape[1]), "size4": args.size4}
@@ -970,6 +1037,9 @@ def main() -> None:
     b.add_argument("--pairs-per", type=int, default=5,
                    help="conclusions per hypothesis pair (at most)")
     b.add_argument("--pairs-seed", type=int, default=0)
+    b.add_argument("--std-pairs-per", type=int, default=0,
+                   help="std_pairs tier (needs --pairs): conclusions per (standard law, law) "
+                        "pair, 0 for none")
     b.add_argument("--size4", type=int, default=10_000,
                    help="random magmas of size 4 in the refutation filter")
     b.add_argument("--sat-cache", default="",
