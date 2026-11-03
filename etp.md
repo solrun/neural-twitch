@@ -336,9 +336,13 @@ search on the open ones, as for the pairs tier.
   `$NT_STORE/etp/proofs/ETP/ETP-43_2647_714_{flat,noflat}.txt.gz`.
 - With associativity, Twee rarely saturates (238 saturated against 805 open;
   commutativity 421 against 363): it cannot orient associativity away, so
-  completion seldom terminates even on false problems. The open
-  associativity problems are presumably mostly false; countermodel search
-  pending.
+  completion seldom terminates even on false problems.
+
+**Countermodel search** on the 1,168 open (Vampire fmb, 60 s): **1,155
+false** (countermodel sizes 4: 702, 5: 79, 6: 302, 7: 32, 8: 18, 9: 1,
+10: 21), 13 unknown, none true. So the open associativity problems are
+false problems that Twee cannot saturate, not hard theorems. Proof search on
+the 13 pending.
 
 ## All true implications (2026-10-29)
 
