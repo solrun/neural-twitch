@@ -15,6 +15,15 @@ A bare number means "cps:N".
 Cost is the number of critical pairs considered; `--max-cps` turns it into a
 budget.
 
+Outcomes: "proved"; "budget" (stopped at the --max-cps limit); "saturated"
+(stopped below it without a proof: no critical pairs left, so completion
+finished and the goal does not follow); "timeout" (killed at the wall cap);
+"error". Twee itself only reports saturation (SZS Satisfiable) when no
+limit is set at all, so with --max-cps it says "Gave up" in both cases; the
+CP count tells them apart. Other Twee limits (--max-rules, --max-cp-depth,
+--max-term-size, --max-time) also stop it early, so with any of those in
+extra_flags an unsolved run is reported as "budget", never "saturated".
+
 Environment: TWEE_PATH (binary), TPTP_ROOT (for axiom includes).
 """
 
@@ -109,7 +118,7 @@ class Setting:
 
 @dataclass
 class RunResult:
-    status: str                # "proved" | "budget" | "timeout" | "error"
+    status: str                # "proved" | "budget" | "saturated" | "timeout" | "error"
     cps: int | None            # critical pairs considered
     rules_created: int | None
     active_rules: int | None
@@ -120,6 +129,19 @@ class RunResult:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# Twee options that stop the search early and so make it incomplete: an
+# unsolved run with one of these is not a saturation.
+INCOMPLETE_FLAGS = ("--max-rules", "--max-cp-depth", "--max-term-size", "--max-time")
+
+
+def unsolved_status(cps: int, max_cps: int, extra_flags: list[str] | None = None) -> str:
+    """"budget" if the run reached --max-cps (or another limit could have
+    stopped it), else "saturated"."""
+    if cps >= max_cps or any(f.split("=")[0] in INCOMPLETE_FLAGS for f in (extra_flags or [])):
+        return "budget"
+    return "saturated"
 
 
 def hints_block(abstractions: list[str]) -> str:
@@ -216,7 +238,8 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
         stats = parse_stats(out)
         if stats is None:
             return RunResult("error", None, None, None, wall, (err or out)[-2000:])
-        status = "proved" if stats["solved"] else "budget"
+        status = ("proved" if stats["solved"]
+                  else unsolved_status(stats["cps"], max_cps, extra_flags))
         if proof_path and status == "proved":
             write_text(proof_path, out)
         return RunResult(status, stats["cps"], stats["rules_created"],

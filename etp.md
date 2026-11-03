@@ -256,6 +256,15 @@ complete for unit equality, so a saturated system that does not derive the
 goal shows the goal does not follow. The 1,809 saturated problems are false
 on Twee's evidence alone; Vampire below confirms this independently.
 
+Since 2026-11-03 `nt.twee` reports this as its own outcome, `saturated`
+(an unsolved run that stopped below `--max-cps` with no other Twee limit
+set; Twee itself only says "Satisfiable" when no limit is set at all, so it
+reports these as "Gave up"), and `nt.etp report`/`summarize` split unproved
+problems into **saturated** (false) and **open** (unknown) instead of the
+earlier "hard". Older result files are read the same way (a `budget` row
+below the CP limit counts as saturated). For the pairs tier that gives
+saturated 1,809, open 1,594.
+
 **Countermodel search** (`nt.etp fmb`: Vampire 5.0 finite model builder,
 60 s per problem, all 3,403 unproved): **3,285 false** (countermodels of size
 4: 2,297, 5: 599, 6: 141, 7: 57, 8: 37, 9: 64, 10: 90), 118 unknown, none

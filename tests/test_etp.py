@@ -54,11 +54,17 @@ def test_parse_law():
 
 def test_triage_bucket():
     p = lambda f, c: {"flatten": f, "status": "proved", "cps": c}
-    t = lambda f: {"flatten": f, "status": "budget", "cps": None}
+    lim = lambda f: {"flatten": f, "status": "budget", "cps": 1_000_000}
+    tout = lambda f: {"flatten": f, "status": "timeout", "cps": None}
+    sat = lambda f: {"flatten": f, "status": "saturated", "cps": 25}
+    old_sat = lambda f: {"flatten": f, "status": "budget", "cps": 25}   # before "saturated"
     assert etp.triage_bucket([p(True, 10), p(False, 20)], 10_000) == "trivial"
-    assert etp.triage_bucket([p(True, 10), t(False)], 10_000) == "label"
+    assert etp.triage_bucket([p(True, 10), lim(False)], 10_000) == "label"
     assert etp.triage_bucket([p(True, 50_000), p(False, 20)], 10_000) == "label"
-    assert etp.triage_bucket([t(True), t(False)], 10_000) == "hard"
+    assert etp.triage_bucket([lim(True), tout(False)], 10_000) == "open"
+    assert etp.triage_bucket([sat(True), tout(False)], 10_000) == "saturated"
+    assert etp.triage_bucket([old_sat(True), lim(False)], 10_000) == "saturated"
+    assert etp.triage_bucket([old_sat(True), lim(False)], 10_000, max_cps=20) == "open"
 
 
 def test_is_instance():
@@ -183,6 +189,6 @@ def test_bits_all_rows_compact_summarize(tmp_path):
     with gzip.open(tmp_path / "t_0.tsv.gz", "rt") as f:
         assert "\t0.01235\t" in f.read()
     etp.cmd_summarize(types.SimpleNamespace(
-        runs=[str(tmp_path / "t_0.tsv.gz")], min_cps=10_000, show=5, count_problems=True,
-        write_lists=str(tmp_path / "lists")))
+        runs=[str(tmp_path / "t_0.tsv.gz")], min_cps=10_000, max_cps=1_000_000, show=5,
+        count_problems=True, write_lists=str(tmp_path / "lists")))
     assert open(tmp_path / "lists" / "label.txt").read() == "ETP-3_5\n"

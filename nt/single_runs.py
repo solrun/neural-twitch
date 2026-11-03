@@ -220,6 +220,8 @@ def add_ratios(out_path: str, results: list[dict], max_cps: int) -> None:
                     ratio = r["cps"] / b["cps"]
                 elif r["status"] == "budget":
                     ratio = max_cps / b["cps"]
+                # "saturated" (no proof, completion finished) gets no ratio:
+                # it is no lower bound, and on a theorem it should not happen
             r["ratio"] = ratio
             out.write(json.dumps(r) + "\n")
     proved = collections.Counter((r["kind"], r["status"]) for r in results)

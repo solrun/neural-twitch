@@ -3,7 +3,7 @@
 # finite model builder (MODE=fmb, default) or proof search with the CASC
 # strategy schedule (MODE=casc). E.g. the pairs problems Twee did not prove:
 #   mkdir -p logs out/etp
-#   sbatch --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/hard.txt,NAME=fmb_pairs \
+#   sbatch --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/open.txt,NAME=fmb_pairs \
 #       slurm/etp_fmb.sbatch
 #   python -m nt.etp fmb-report out/etp/fmb_pairs_*.tsv \
 #       --triage out/etp/triage_pairs_*.jsonl --write-lists out/etp/lists_pairs

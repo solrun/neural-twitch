@@ -78,7 +78,7 @@ the pair with the fewest operations in total (lowest numbers on ties).
       --vampire-hard data/etp/vampire_hard.tsv --pairs 4000 --pairs-per 5
   # problem files for some tiers, optionally one shard of them
   python -m nt.etp write data/etp --tiers degenerate:hasse --out-dir $TMPDIR/etp --shard 3/16
-  # after a triage run (slurm/etp_triage.sbatch): trivial / label / hard per tier
+  # after a triage run (slurm/etp_triage.sbatch): trivial / label / saturated / open per tier
   python -m nt.etp report out/etp/triage_*.jsonl --write-lists out/etp/lists
   # rows of a triage run point at $NT_STORE; only problems with proofs are copied
   python -m nt.etp keep out/etp/triage_known_0.jsonl --to $NT_STORE/etp/problems
@@ -693,6 +693,8 @@ def cmd_summarize(args) -> None:
             if st == "proved":
                 cps_bins[flat][0 if cps < 1 else int(math.log10(cps)) + 1] += 1
             if st != "proved" or cps >= args.min_cps:
+                if run_saturated({"status": st, "cps": cps}, args.max_cps):
+                    st = "saturated"
                 nontrivial[prob].append((flat, st, cps, wall))
     print(f"{runs} runs: {dict(status)}")
     if problems_seen is not None:
@@ -703,17 +705,20 @@ def cmd_summarize(args) -> None:
               + ", ".join(f"{'0' if k == 0 else '<1e' + str(k)}: {b[k]}" for k in sorted(b))
               + f"; total wall {wall_total[flat]:.0f} s")
     label = {p for p, rs in nontrivial.items() if any(st == "proved" for _, st, _, _ in rs)}
-    hard = set(nontrivial) - label
+    saturated = {p for p, rs in nontrivial.items()
+                 if p not in label and any(st == "saturated" for _, st, _, _ in rs)}
+    open_ = set(nontrivial) - label - saturated
     print(f"not trivial (a run unproved or >= {args.min_cps} CPs): {len(nontrivial)} "
-          f"(label {len(label)}, hard {len(hard)})")
+          f"(label {len(label)}, saturated {len(saturated)}, open {len(open_)})")
     for p in sorted(nontrivial, key=lambda p: -max((c or 0) for _, _, c, _ in nontrivial[p]))[:args.show]:
         print("  ", p, sorted(nontrivial[p]))
     if args.write_lists:
         os.makedirs(args.write_lists, exist_ok=True)
-        for name, items in (("label", label), ("hard", hard)):
+        for name, items in (("label", label), ("saturated", saturated), ("open", open_)):
             with open(os.path.join(args.write_lists, f"{name}.txt"), "w") as f:
                 f.writelines(f"{p}\n" for p in sorted(items))
-        print(f"lists -> {args.write_lists}/{{label,hard}}.txt (trivial ones not listed)")
+        print(f"lists -> {args.write_lists}/{{label,saturated,open}}.txt "
+              f"(trivial ones not listed)")
 
 
 # --------------------------------------------------------------------- fmb
@@ -786,9 +791,9 @@ def cmd_fmb(args) -> None:
 
 
 def _twee_ending(r: dict, max_cps: int) -> str:
-    if r["status"] == "budget":
-        return "cp limit" if (r["cps"] or 0) >= max_cps else "saturated"
-    return r["status"]
+    if run_saturated(r, max_cps):
+        return "saturated"
+    return "cp limit" if r["status"] == "budget" else r["status"]
 
 
 def cmd_fmb_report(args) -> None:
@@ -883,12 +888,26 @@ def cmd_check(args) -> None:
 
 # ------------------------------------------------------------------ report
 
-def triage_bucket(runs: list[dict], min_cps: int) -> str:
+TRIAGE_MAX_CPS = 1_000_000    # the triage's default CP budget (slurm/etp_triage.sbatch)
+BUCKETS = ("trivial", "label", "saturated", "open")
+
+
+def run_saturated(r: dict, max_cps: int = TRIAGE_MAX_CPS) -> bool:
+    """Twee finished completion without a proof: the problem is false. Runs
+    from before nt.twee reported "saturated" have status "budget" with fewer
+    CPs than the limit."""
+    return r["status"] == "saturated" or (
+        r["status"] == "budget" and r.get("cps") is not None and r["cps"] < max_cps)
+
+
+def triage_bucket(runs: list[dict], min_cps: int, max_cps: int = TRIAGE_MAX_CPS) -> str:
     """trivial: proved under every flattening setting run, each under min_cps;
-    hard: proved under none; label: everything in between."""
+    label: proved under some setting, not trivial; saturated: proved under
+    none, saturated under some (false); open: neither proved nor saturated
+    (unknown status, not necessarily a hard theorem)."""
     proved = [r for r in runs if r["status"] == "proved"]
     if not proved:
-        return "hard"
+        return "saturated" if any(run_saturated(r, max_cps) for r in runs) else "open"
     if len(proved) == len(runs) and max(r["cps"] for r in proved) < min_cps:
         return "trivial"
     return "label"
@@ -903,16 +922,19 @@ def cmd_report(args) -> None:
                 r = json.loads(line)
                 if r["problem"] in sel and r["status"] != "error":
                     runs[r["problem"]].append(r)
-    buckets = {p: triage_bucket(rs, args.min_cps) for p, rs in runs.items()}
+    buckets = {p: triage_bucket(rs, args.min_cps, args.max_cps) for p, rs in runs.items()}
     table = collections.Counter((sel[p]["tier"], b) for p, b in buckets.items())
-    names = ("trivial", "label", "hard")
+    names = BUCKETS
     print(f"{len(buckets)} problems with runs (of {len(sel)} selected); "
-          f"trivial = proved under every setting with < {args.min_cps} CPs\n")
-    print(f"{'tier':14s}" + "".join(f"{b:>9s}" for b in names) + "  hyp classes (label)")
+          f"trivial = proved under every setting with < {args.min_cps} CPs; "
+          f"saturated = unproved, Twee saturated (false); open = unproved, not saturated\n")
+    print(f"{'tier':14s}" + "".join(f"{b:>10s}" for b in names) + "  hyp classes (label)")
     for t in TIERS:
+        if not any(table[t, b] for b in names):
+            continue
         cls = {sel[p]["hyp_class"] for p, b in buckets.items()
                if b == "label" and sel[p]["tier"] == t}
-        print(f"{t:14s}" + "".join(f"{table[t, b]:9d}" for b in names) + f"  {len(cls):9d}")
+        print(f"{t:14s}" + "".join(f"{table[t, b]:10d}" for b in names) + f"  {len(cls):9d}")
     flat = collections.Counter()
     for p, rs in runs.items():
         st = {r["flatten"]: r["status"] == "proved" for r in rs}
@@ -975,14 +997,19 @@ def main() -> None:
     r.add_argument("--data-dir", default="data/etp")
     r.add_argument("--min-cps", type=int, default=10_000,
                    help="below this a proof counts as trivial (nt.expand's DEFAULT_MIN_CPS)")
+    r.add_argument("--max-cps", type=int, default=TRIAGE_MAX_CPS,
+                   help="the runs' CP budget: an older 'budget' row below it was a saturation")
     r.add_argument("--write-lists", default="", metavar="DIR",
-                   help="write trivial.txt, label.txt, hard.txt (for write --problems)")
+                   help="write trivial.txt, label.txt, saturated.txt, open.txt "
+                        "(for write --problems)")
     cp = sub.add_parser("compact", help="nt.expand base output -> compact .tsv.gz")
     cp.add_argument("runs", nargs="+")
     cp.add_argument("--remove", action="store_true", help="delete the .jsonl afterwards")
     sm = sub.add_parser("summarize", help="streaming report for very many runs")
     sm.add_argument("runs", nargs="+", help=".tsv.gz (from compact) or .jsonl files")
     sm.add_argument("--min-cps", type=int, default=10_000)
+    sm.add_argument("--max-cps", type=int, default=TRIAGE_MAX_CPS,
+                    help="the runs' CP budget: an older 'budget' row below it was a saturation")
     sm.add_argument("--show", type=int, default=20, help="print the N most expensive")
     sm.add_argument("--count-problems", action="store_true",
                     help="count distinct problems (needs memory for all names)")
@@ -1002,7 +1029,7 @@ def main() -> None:
     fr = sub.add_parser("fmb-report", help="summary of fmb results")
     fr.add_argument("results", nargs="+", help="fmb .tsv files")
     fr.add_argument("--triage", nargs="*", default=[], help="nt.expand base output (.jsonl)")
-    fr.add_argument("--max-cps", type=int, default=1_000_000,
+    fr.add_argument("--max-cps", type=int, default=TRIAGE_MAX_CPS,
                     help="the triage's CP budget (to tell saturation from the limit)")
     fr.add_argument("--write-lists", default="", metavar="DIR")
     k = sub.add_parser("keep", help="after triage: keep only problems with proofs")

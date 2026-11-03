@@ -140,12 +140,13 @@ def main() -> None:
 
     # ---- 0. outcomes -------------------------------------------------------
     p("## 0. Run outcomes\n")
-    p("| kind | runs | proved | budget | timeout | error | ratio defined |")
-    p("|---|---|---|---|---|---|---|")
+    p("| kind | runs | proved | budget | saturated | timeout | error | ratio defined |")
+    p("|---|---|---|---|---|---|---|---|")
     for kind in ("base", "set", "single"):
         rs = [r for r in rows if r["kind"] == kind]
         c = collections.Counter(r["status"] for r in rs)
-        p(f"| {kind} | {len(rs)} | {c['proved']} | {c['budget']} | {c['timeout']} | "
+        p(f"| {kind} | {len(rs)} | {c['proved']} | {c['budget']} | {c['saturated']} | "
+          f"{c['timeout']} | "
           f"{c['error']} | {sum(r['ratio'] is not None for r in rs)} |")
     errs = [r for r in rows if r["status"] == "error"]
     if errs:

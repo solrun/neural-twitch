@@ -156,7 +156,12 @@ tier: `--export=ALL,TIERS=random,SAMPLE=10000`. Defaults: 1M CPs and 300 s per
 run (`MAX_CPS`, `WALL`), proofs from 10k CPs (`PROOF_MIN_CPS`).
 
 The report splits each tier into trivial (every setting proves it under 10k
-CPs), label and hard. With `NT_STORE`, the rows' paths and proofs are
+CPs), label (proved, not trivial), saturated (unproved, and Twee saturated
+under some setting: completion finished without the goal, so the problem is
+false) and open (unproved, not saturated: unknown, not necessarily a hard
+theorem). `nt.twee` reports saturation as its own status since 2026-11-03;
+for older results the report counts a "budget" run below `--max-cps`
+(default 1M, the triage's budget) as saturated. With `NT_STORE`, the rows' paths and proofs are
 valid, so `nt.expand abstract` can run on the triage output directly (it
 skips runs under its `--min-cps`). Without it, write the label band out
 again (`python -m nt.etp write --problems out/etp/lists/label.txt --out-dir
@@ -180,7 +185,7 @@ python -m nt.etp summarize out/etp/triage_all_*.tsv.gz --write-lists out/etp/lis
 
 `summarize` prints the run counts, the CP distribution per flattening
 setting and the most expensive problems, and lists only the non-trivial ones
-(label, hard). Add `--count-problems` to count distinct problems (needs a
+(label, saturated, open). Add `--count-problems` to count distinct problems (needs a
 few GB of memory for 8M names).
 
 ### Countermodel search (Vampire finite model builder)
@@ -195,7 +200,7 @@ in `slurm/vera.env`:
 tar xzf eq_vampire.tgz eq_vampire/vampire
 scp eq_vampire/vampire <cid>@vera1.c3se.chalmers.se:bin/vampire
 # on Vera
-sbatch -A <project> --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/hard.txt,NAME=fmb_pairs slurm/etp_fmb.sbatch
+sbatch -A <project> --array=0-15 --export=ALL,LIST=out/etp/lists_pairs/open.txt,NAME=fmb_pairs slurm/etp_fmb.sbatch
 python -m nt.etp fmb-report out/etp/fmb_pairs_*.tsv --triage out/etp/triage_pairs_*.jsonl --write-lists out/etp/lists_pairs
 ```
 

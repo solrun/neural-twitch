@@ -81,7 +81,7 @@ def main() -> None:
         print(f"\n=== goal flattening {'on' if flatten else 'off'}: {len(sub)} problems ===")
         table = collections.Counter((r["ours"], r["twitch"]) for r in sub)
         print(f"{'ours / Twitch':<22}{'proved':>8}{'timeout':>9}")
-        for status in ("proved", "timeout", "budget", "error"):
+        for status in ("proved", "timeout", "budget", "saturated", "error"):
             if any(s == status for s, _ in table):
                 print(f"{status:<22}{table[status, 'proved']:>8}{table[status, 'timeout']:>9}")
 

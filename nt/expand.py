@@ -436,7 +436,8 @@ def main() -> None:
     b.add_argument("--flatten", choices=FLATTEN_MODES, default="both")
     b.add_argument("--wall-timeout", type=float, default=1000.0)
     b.add_argument("--max-cps", type=int, default=UNLIMITED,
-                   help="CP budget (default unlimited); runs that hit it end as 'budget'")
+                   help="CP budget (default unlimited); runs that hit it end as 'budget', "
+                        "unsolved runs below it as 'saturated'")
     b.add_argument("--no-proofs", action="store_true",
                    help="don't keep proofs (triage: avoids one file per proved run)")
     b.add_argument("--proof-min-cps", type=int, default=0,
