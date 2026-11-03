@@ -251,7 +251,10 @@ How the unproved runs ended (`budget` split by CP count: under 1M CPs means
 Twee **saturated**, i.e. completed the rewrite system without the goal):
 1,809 problems saturated under some setting (median 25 CPs, max 38,173);
 1,500 hit the 300 s cap under both settings; 94 hit the 1M CP limit under at
-least one.
+least one. **We take a saturation as a falsification:** Twee's completion is
+complete for unit equality, so a saturated system that does not derive the
+goal shows the goal does not follow. The 1,809 saturated problems are false
+on Twee's evidence alone; Vampire below confirms this independently.
 
 **Countermodel search** (`nt.etp fmb`: Vampire 5.0 finite model builder,
 60 s per problem, all 3,403 unproved): **3,285 false** (countermodels of size
@@ -263,18 +266,21 @@ true. Against Twee's endings:
 | saturated | 1,805 | 0 | 4 |
 | open | 1,480 | 0 | 114 |
 
-So a Twee saturation does mean a false problem here (no saturated problem
-is true; the 4 unknown just have no countermodel found in 60 s). Countermodels
-on a test sample were checked independently (`nt.etp.satisfaction`: both
-hypotheses hold, the conclusion fails).
+Vampire agrees with every Twee saturation it decides: 1,805 countermodels,
+none true; the other 4 have no countermodel within 60 s and are refuted in
+the CASC run below. Countermodels on a test sample were checked
+independently (`nt.etp.satisfaction`: both hypotheses hold, the conclusion
+fails).
 
 **Proof search on the 118 undecided** (`nt.etp fmb --mode casc`: Vampire's
 CASC schedule, 600 s per problem, 2026-11-03): **none proved**; 7 refuted (the
-4 saturated ones and 3 open ones), 111 still undecided. Vampire finds no
+4 saturated ones, already false by Twee's saturation, and 3 open ones), 111
+still undecided. Vampire finds no
 theorem among them that Twee missed.
 
-**Pairs tier in total:** 16,481 true (all trivial for Twee), 3,292 false,
-111 undecided (Twee: no proof within 1M CPs / 300 s and no saturation;
+**Pairs tier in total:** 16,481 true (all trivial for Twee), 3,292 false
+(1,809 by Twee's saturation, all confirmed by Vampire; 1,483 more by
+Vampire), 111 undecided (Twee: no proof within 1M CPs / 300 s and no saturation;
 Vampire: no countermodel in 60 s, nothing in 600 s of CASC). No problem in
 the label band, and no hard theorem found. By analogy with Twitch's ETP set
 (Vampire's undecided single-law implications, all false), the 111 are most
