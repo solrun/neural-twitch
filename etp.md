@@ -341,8 +341,15 @@ search on the open ones, as for the pairs tier.
 **Countermodel search** on the 1,168 open (Vampire fmb, 60 s): **1,155
 false** (countermodel sizes 4: 702, 5: 79, 6: 302, 7: 32, 8: 18, 9: 1,
 10: 21), 13 unknown, none true. So the open associativity problems are
-false problems that Twee cannot saturate, not hard theorems. Proof search on
-the 13 pending.
+false problems that Twee cannot saturate, not hard theorems.
+
+**Proof search** on the 13 unknown (10 associativity, 3 commutativity;
+Vampire CASC, 600 s): none decided.
+
+**std_pairs in total:** 6,265 true and trivial, **1 in the label band**
+(ETP-43_2647_714, a theorem), 1,814 false (659 by Twee's saturation, 1,155
+by Vampire countermodels), 13 undecided (10 associativity, 3
+commutativity) that neither Twee nor Vampire settles.
 
 ## All true implications (2026-10-29)
 
@@ -373,8 +380,12 @@ with hypothesis 2923 (the dual of 650) and only with goal flattening on
 (about 11,500 CPs; 65 without). Two-law hypotheses (pairs tier) do not
 change this: 16,481 of 19,884 true and trivial, none in between, 3,292
 shown false (Vampire), 111 undecided, of which neither Twee nor Vampire
-proves any. Below 10k CPs hint ratios mean little
-(DEFAULT_MIN_CPS), so ETP gives neither labels nor hard problems for Twee,
+proves any. Pairing a standard law with every incomparable law (std_pairs:
+associativity, commutativity; 8,093 problems) gives the only exception:
+one theorem over 10k CPs under both settings (ETP-43_2647_714, about 12–14k
+CPs); otherwise trivial (6,265), false (1,814) or undecided (13). Below 10k
+CPs hint ratios mean little (DEFAULT_MIN_CPS), so ETP gives neither labels
+(one problem is no dataset) nor hard problems for Twee,
 and cannot serve as the leave-domain-out test as planned. This matches the
 ETP paper and Janota: the positive implications are easy for ATPs, the
 difficulty is in the refutations (finite and infinite counterexamples),
