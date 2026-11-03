@@ -320,6 +320,26 @@ with it in a filter magma, 2 conclusions each, same filter as the pairs tier
 random pairs, so many will be false; triage, then countermodel and proof
 search on the open ones, as for the pairs tier.
 
+**Triage** (same settings, 2026-11-03):
+
+| | trivial | label | saturated (false) | open |
+|---|---|---|---|---|
+| associativity (4,918) | 3,875 | 0 | 238 | 805 |
+| commutativity (3,173) | 2,388 | **1** | 421 | 363 |
+| both (2) | 2 | 0 | 0 | 0 |
+
+- **ETP-43_2647_714**, commutativity and 2647 `X = m(m(m(X, X), m(X, Y)), Y)`
+  => 714 `X = m(Y, m(Y, m(m(Y, X), Y)))`: proved with **11,652 CPs (flattening
+  off, 4.4 s) and 13,770 (on, 5.5 s)**. The first ETP-derived problem over
+  10k CPs under both settings (the four 2923 problems are so only with
+  flattening on). A theorem, just over the threshold; proofs kept in
+  `$NT_STORE/etp/proofs/ETP/ETP-43_2647_714_{flat,noflat}.txt.gz`.
+- With associativity, Twee rarely saturates (238 saturated against 805 open;
+  commutativity 421 against 363): it cannot orient associativity away, so
+  completion seldom terminates even on false problems. The open
+  associativity problems are presumably mostly false; countermodel search
+  pending.
+
 ## All true implications (2026-10-29)
 
 Every one of the 8,173,585 non-reflexive true implications (`TIERS=all`),
