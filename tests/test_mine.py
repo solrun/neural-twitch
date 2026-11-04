@@ -129,6 +129,20 @@ def test_run_keeps_log_only_when_asked(tmp_path):
     assert r.status == "saturated" and "final rewrite system" in twee.read_text(str(log))
 
 
+def test_logged_run_streams_and_keeps_partial_output_on_timeout(tmp_path):
+    prob = tmp_path / "p.p"
+    prob.write_text(PROBLEM)
+    tw = tmp_path / "slow"
+    tw.write_text("#!/bin/sh\necho '1. f(X, Y) -> X'\necho '2. g(X) -> X'\nsleep 30\n")
+    tw.chmod(tw.stat().st_mode | stat.S_IEXEC)
+    log = tmp_path / "logs" / "p.log.gz"
+    r = twee.run(str(prob), [], twee.Setting(), 1000, 1, twee=str(tw), tptp_root="",
+                 log_path=str(log))
+    assert r.status == "timeout"
+    assert parse_search_log(twee.read_text(str(log)))[0] == {1: ("f(X, Y)", "X"), 2: ("g(X)", "X")}
+    assert not list((tmp_path / "logs").glob("*.part"))
+
+
 def test_base_mine_report_end_to_end(tmp_path):
     d = tmp_path / "GRP_UEQ_UNSAT"
     d.mkdir()

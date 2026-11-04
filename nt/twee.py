@@ -32,6 +32,7 @@ from __future__ import annotations
 import gzip
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tempfile
@@ -201,6 +202,33 @@ def _kill_group(p: subprocess.Popen) -> tuple[str, str]:
     return p.communicate()
 
 
+def _run_to_file(cmd: list[str], wall_timeout: float, out_path: str) -> str:
+    """Like _run_capped, but stdout goes straight to out_path, so a long
+    non-quiet run's output (every rule Twee creates) is never held in
+    memory. Returns stderr; on timeout, out_path keeps what was printed."""
+    with open(out_path, "w") as out:
+        p = subprocess.Popen(cmd, stdout=out, stderr=subprocess.PIPE,
+                             text=True, start_new_session=True)
+        try:
+            return p.communicate(timeout=wall_timeout)[1]
+        except BaseException:
+            _kill_group(p)
+            raise
+
+
+def _tail(path: str, nbytes: int = 1 << 16) -> str:
+    with open(path, "rb") as f:
+        f.seek(max(0, os.path.getsize(path) - nbytes))
+        return f.read().decode(errors="replace")
+
+
+def _gzip_file(src: str, dest: str) -> None:
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    opener = gzip.open if dest.endswith(".gz") else open
+    with open(src, "rb") as fi, opener(dest, "wb") as fo:
+        shutil.copyfileobj(fi, fo, 1 << 20)
+
+
 def run(problem_path: str, abstractions: list[str], setting: Setting,
         max_cps: int, wall_timeout: float = 600.0,
         twee: str | None = None, tptp_root: str | None = None,
@@ -238,13 +266,14 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
            *(extra_flags or [])]
     if tptp_root:
         cmd += ["--root", tptp_root]
+    if log_path:
+        return _run_logged(cmd, wall_timeout, max_cps, extra_flags, proof_path,
+                           log_path, tmp_path)
     start = time.monotonic()
     try:
         out, err = _run_capped(cmd, wall_timeout)
         wall = time.monotonic() - start
         stats = parse_stats(out)
-        if log_path:
-            write_text(log_path, out)
         if stats is None:
             return RunResult("error", None, None, None, wall, (err or out)[-2000:])
         status = ("proved" if stats["solved"]
@@ -255,9 +284,38 @@ def run(problem_path: str, abstractions: list[str], setting: Setting,
                          stats["active_rules"], wall,
                          allocated_bytes=stats["allocated_bytes"],
                          cpu_seconds=stats["cpu_seconds"])
-    except subprocess.TimeoutExpired as e:
-        if log_path and e.output:
-            write_text(log_path, e.output)
+    except subprocess.TimeoutExpired:
         return RunResult("timeout", None, None, None, time.monotonic() - start)
     finally:
         os.unlink(tmp_path)
+
+
+def _run_logged(cmd, wall_timeout, max_cps, extra_flags, proof_path, log_path,
+                tmp_path) -> RunResult:
+    """run() with log_path: Twee's output is streamed to a file next to
+    log_path and compressed afterwards, rather than collected in memory."""
+    os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+    raw = log_path[:-3] + ".part" if log_path.endswith(".gz") else log_path + ".part"
+    start = time.monotonic()
+    try:
+        err = _run_to_file(cmd, wall_timeout, raw)
+        wall = time.monotonic() - start
+        stats = parse_stats(_tail(raw))
+        if stats is None:
+            return RunResult("error", None, None, None, wall, (err or _tail(raw, 2000))[-2000:])
+        status = ("proved" if stats["solved"]
+                  else unsolved_status(stats["cps"], max_cps, extra_flags))
+        if proof_path and status == "proved":
+            _gzip_file(raw, proof_path)
+        return RunResult(status, stats["cps"], stats["rules_created"],
+                         stats["active_rules"], wall,
+                         allocated_bytes=stats["allocated_bytes"],
+                         cpu_seconds=stats["cpu_seconds"])
+    except subprocess.TimeoutExpired:
+        return RunResult("timeout", None, None, None, time.monotonic() - start)
+    finally:
+        os.unlink(tmp_path)
+        if os.path.exists(raw):
+            if os.path.getsize(raw):
+                _gzip_file(raw, log_path)
+            os.unlink(raw)
