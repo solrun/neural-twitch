@@ -98,6 +98,27 @@ Proved runs (out of 5,000 per domain and setting):
 - Open problems: 97 l-groups and 27 residuated lattices, a candidate hard
   set.
 
+Breakdown (second report):
+
+- **Flattening on almost dominates:** only 18 label problems are proved
+  with flattening off but not on. Most of the label bucket (LGR 1,600, RLT
+  1,322) is cheap (< 10k CPs) with flattening on and fails or is expensive
+  without it.
+- **Hard for the better setting (>= 10k CPs):** LGR 1,027 (473 of them
+  >= 100k), RLT 609 (46 >= 100k). This, plus the 124 open, is the useful
+  pool for abstraction labels.
+- **Difficulty grows with size:** in LGR, 4-7 operations gives 0 open and
+  27% label; 16+ gives 65 open and 69% label. To get more hard problems,
+  generate larger terms.
+- **Equations are mostly trivial** (199 of 247); the hard ones are
+  inequalities.
+- **Some open RL problems are short, with three-step human proofs**, e.g.
+  RLT-00999 `1/x <= y\((y v z)/x)` (y(1/x)x <= y <= y v z), RLT-02679
+  `1/((x v y) v y) <= z\(z/y)` and RLT-01229 `x ^ y <= x\((xy)/(x\y))`.
+  The proofs use only monotonicity of multiplication and the residuals,
+  which the equational axioms give only indirectly. These are good
+  showcase problems for lemma or abstraction hints.
+
 The first report printed `ops=None` (nt.expand base output does not carry
 the manifest's fields). The report now reads sizes from the selection and
 splits the buckets by size, kind and variables, and the label bucket by
