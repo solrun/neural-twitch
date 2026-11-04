@@ -15,6 +15,8 @@
 #   WALL       wall cap in seconds per run (default 300)
 #   NAME       output prefix (default triage)
 #   PROOFS     1 to keep proofs, 0 not to (default 1 with NT_STORE, else 0)
+#   LIST       file of problem names to run (default all)
+#   FLATTEN    both, on or off (default both)
 # Resume unfinished shards with the same SHARDS and --resume:
 #   sbatch --array=2,5 --export=ALL,SHARDS=8,EXTRA_ARGS=--resume slurm/reslat_triage.sbatch
 #SBATCH -J nt-reslat-triage
@@ -49,8 +51,9 @@ else
 fi
 
 python -m nt.reslat write data/reslat --varieties "${VARIETIES:-rl,lg}" --shard "$K/$N" \
+    ${LIST:+--problems "$LIST"} \
     --out-dir "$PROBLEMS" --manifest "$WORK/manifest.jsonl"
 # shellcheck disable=SC2086  # EXTRA_ARGS is word-split on purpose
 python -m nt.expand base "$WORK/manifest.jsonl" --out "out/reslat/${NAME}_${K}.jsonl" \
-    "${PROOF_ARGS[@]}" --max-cps "${MAX_CPS:-1000000}" --wall-timeout "${WALL:-300}" \
+    "${PROOF_ARGS[@]}" --flatten "${FLATTEN:-both}" --max-cps "${MAX_CPS:-1000000}" --wall-timeout "${WALL:-300}" \
     --workers "$SLURM_CPUS_PER_TASK" ${EXTRA_ARGS:-}
