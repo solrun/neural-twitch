@@ -70,18 +70,41 @@ variable renaming.
 True equations are rare (random two-sided equations almost never hold), so
 the selection is mostly inequalities.
 
-## Triage (to run)
+## Triage (2026-11-04, Vera)
 
-    mkdir -p logs out/reslat
-    sbatch --array=0-7 slurm/reslat_triage.sbatch
-    python -m nt.reslat report out/reslat/triage_*.jsonl --write-lists out/reslat/lists
+Plain Twee, both flattening settings, 1M CPs / 300 s per run
+(`slurm/reslat_triage.sbatch`, `--array=0-7`):
 
-Buckets: trivial (proved under both settings, < 10k CPs), label (proved,
-otherwise), open (unproved within 1M CPs / 300 s), saturated (Twee completed
-without the goal). **A saturated run is a bug**: the goal is a theorem, so
-either an axiomatization is incomplete or a decider is wrong. The report also
-gives CPs by size, to see whether larger random terms are harder.
+| domain | trivial | label | open | saturated |
+|---|---|---|---|---|
+| LGR | 2,276 | 2,627 | 97 | 0 |
+| RLT | 3,041 | 1,932 | 27 | 0 |
 
-If most problems are trivial, next steps would be larger terms (`--max-ops`),
-more variables, equations only (`--leq 0`), or Jipsen's lists of standard
-RL/LG identities.
+Proved runs (out of 5,000 per domain and setting):
+
+| | flattening | proved | median CPs | max CPs |
+|---|---|---|---|---|
+| LGR | off | 4,017 | 3,282 | 776,523 |
+| LGR | on | 4,888 | 841 | 997,408 |
+| RLT | off | 3,974 | 205 | 966,089 |
+| RLT | on | 4,970 | 356 | 796,802 |
+
+- **No saturated runs:** no evidence of an axiomatization or decider bug.
+- **Unlike ETP, most problems are not trivial:** 4,559 label and 124 open
+  (true, but not proved within 1M CPs under either setting).
+- **Goal flattening matters a lot:** about 1,000 problems per domain fail
+  without it but are proved with it. Part of the label bucket is therefore
+  "fails without flattening" rather than "needs many CPs".
+- Open problems: 97 l-groups and 27 residuated lattices, a candidate hard
+  set.
+
+The first report printed `ops=None` (nt.expand base output does not carry
+the manifest's fields). The report now reads sizes from the selection and
+splits the buckets by size, kind and variables, and the label bucket by
+the better setting's CPs and by which settings prove it:
+
+    python -m nt.reslat report out/reslat/triage_*.jsonl --write-lists out/reslat/lists --show-open
+
+If most problems had been trivial, the next steps would have been larger
+terms (`--max-ops`), more variables, equations only (`--leq 0`), or
+Jipsen's lists of standard RL/LG identities.
