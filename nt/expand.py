@@ -461,6 +461,21 @@ def parse_search_log(text: str) -> tuple[dict[int, tuple[str, str]], set[int]]:
     return rules, deleted
 
 
+_MINIMAL = re.compile(r"(?<![\w$])\?(?![\w$])")
+
+
+def replace_minimal(ls: str, rs: str) -> tuple[str, str, bool]:
+    """Twee prints its minimal constant as "?" (SequentialMain.hs,
+    `pPrint Minimal`); it stands in for variables whose value does not
+    matter. It does not occur in the axioms, so an equation that holds with
+    "?" holds with every "?" replaced by one fresh variable."""
+    if "?" not in ls + rs:
+        return ls, rs, False
+    used = set(re.findall(r"\b[A-Z_]\w*", ls + " " + rs))
+    v = next(f"V{i}" for i in range(10**6) if f"V{i}" not in used)
+    return _MINIMAL.sub(v, ls), _MINIMAL.sub(v, rs), True
+
+
 def mine_candidates(problem_path: str, logs: list[dict], tptp_root: str | None,
                     min_lateness: float, max_size: int, survivors_only: bool,
                     examples: dict | None = None) -> tuple[list[dict], collections.Counter]:
@@ -483,6 +498,9 @@ def mine_candidates(problem_path: str, logs: list[dict], tptp_root: str | None,
             if survivors_only and rid in deleted:
                 why["deleted later"] += 1
                 continue
+            ls, rs, had_minimal = replace_minimal(ls, rs)
+            if had_minimal:
+                why["minimal constant -> variable"] += 1
             reason, l, r, key = check_goal(ls, rs, sig, known)
             if reason:
                 why[reason] += 1

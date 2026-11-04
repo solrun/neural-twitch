@@ -63,6 +63,30 @@ def test_parse_search_log():
     assert deleted == {3}
 
 
+def test_replace_minimal_uses_one_fresh_variable():
+    from nt.expand import replace_minimal
+    from nt.terms import parse
+    ls, rs, had = replace_minimal("f(f(X, f(?, f(?, ?))), V0)", "f(X, ?)")
+    assert had and "?" not in ls + rs
+    assert ls == "f(f(X, f(V1, f(V1, V1))), V0)" and rs == "f(X, V1)"
+    parse(ls), parse(rs)
+    assert replace_minimal("f(X)", "X") == ("f(X)", "X", False)
+
+
+def test_mined_rule_with_minimal_constant(tmp_path):
+    from nt.expand import mine_candidates
+    prob = tmp_path / "LAT001-1.p"
+    prob.write_text("cnf(a, axiom, f(X, f(Y, Y)) = X).\n"
+                    "cnf(goal, negated_conjecture, f(a, a) != a).\n")
+    log = tmp_path / "l.log"
+    log.write_text("1. f(X, f(Y, Y)) -> X\n2. f(f(X, f(?, ?)), Z) -> f(X, Z)\n")
+    cands, why = mine_candidates(str(prob), [{"log": str(log), "flatten": True,
+                                              "status": "budget", "cps": 1}],
+                                 "", 0.0, 0, True)
+    assert [c["lhs"] for c in cands] == ["f(f(X, f(V0, V0)), Z)"]
+    assert why["minimal constant -> variable"] == 1 and not why["unparsable"]
+
+
 def test_pick():
     c = list(range(10))
     assert pick(c, 3, "latest") == [0, 1, 2]
