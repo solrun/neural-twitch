@@ -629,42 +629,100 @@ def bucket(runs: list[dict], min_cps: int, max_cps: int) -> str:
     return "open"
 
 
+OPS_BANDS = ((4, 7), (8, 11), (12, 15), (16, 99))
+CPS_BANDS = ((0, 10_000), (10_000, 100_000), (100_000, 10**12))
+
+
+def _band(x, bands) -> str:
+    """Inclusive bands; the last one is open-ended."""
+    for lo, hi in bands:
+        if lo <= x <= hi:
+            return f"{lo}-{hi}" if hi < 99 else f"{lo}+"
+    return "?"
+
+
+def _cps_band(x: int) -> str:
+    return {0: "<10k", 10_000: "10k-100k", 100_000: ">=100k"}[
+        max(lo for lo, _ in CPS_BANDS if x >= lo)]
+
+
 def cmd_report(args) -> None:
+    sel = {r["problem"]: r for r in read_selection(args.data_dir, ["rl", "lg"])}
     runs = collections.defaultdict(list)
-    meta = {}
     for p in args.runs:
         for line in open(p):
             if line.strip():
                 r = json.loads(line)
                 if r["status"] != "error":
                     runs[r["problem"]].append(r)
-                    meta[r["problem"]] = r
+    missing = [p for p in runs if p not in sel]
+    if missing:
+        raise SystemExit(f"{len(missing)} problems not in {args.data_dir} (e.g. {missing[0]}); "
+                         "pass the --data-dir the problems were written from")
+    dom = {p: DOMAIN[sel[p]["variety"]] for p in runs}
     buckets = {p: bucket(rs, args.min_cps, args.max_cps) for p, rs in runs.items()}
     names = ("trivial", "label", "open", "saturated")
-    table = collections.Counter((meta[p]["domain"], b) for p, b in buckets.items())
+    doms = sorted(set(dom.values()))
+
+    def table(title, key, keys):
+        c = collections.Counter((dom[p], key(p), buckets[p]) for p in buckets)
+        print(f"\n{title}")
+        print(f"  {'':16s}" + "".join(f"{b:>10s}" for b in names))
+        for d in doms:
+            for k in keys:
+                row = [c[d, k, b] for b in names]
+                if sum(row):
+                    print(f"  {d + ' ' + str(k):16s}" + "".join(f"{x:10d}" for x in row))
+
     print(f"{len(buckets)} problems; trivial = proved under every setting with "
-          f"< {args.min_cps} CPs\n")
-    print(f"{'domain':8s}" + "".join(f"{b:>10s}" for b in names))
-    for d in sorted({m["domain"] for m in meta.values()}):
-        print(f"{d:8s}" + "".join(f"{table[d, b]:10d}" for b in names))
-    # CPs of proved runs by size of the equation
+          f"< {args.min_cps} CPs; open = unproved within the budget")
+    table("by domain", lambda p: "", [""])
+    table("by size (operations in both sides)",
+          lambda p: _band(sel[p]["ops"], OPS_BANDS),
+          [_band(lo, OPS_BANDS) for lo, _ in OPS_BANDS])
+    table("by kind", lambda p: sel[p]["kind"], ["eq", "leq"])
+    table("by variables", lambda p: sel[p]["vars"], [2, 3])
+
+    # the label bucket split by how hard the problem is for the better
+    # setting, and by whether the other setting also proves it
+    lab = collections.Counter()
+    for p, rs in runs.items():
+        if buckets[p] != "label":
+            continue
+        proved = {r["flatten"]: r["cps"] for r in rs if r["status"] == "proved"}
+        which = ("both" if len(proved) == 2 else
+                 "flat on only" if True in proved else "flat off only")
+        lab[dom[p], _cps_band(min(proved.values())), which] += 1
+    whiches = ("both", "flat on only", "flat off only")
+    print("\nlabel: CPs of the better setting x which settings prove it")
+    print(f"  {'':16s}" + "".join(f"{w:>15s}" for w in whiches))
+    for d in doms:
+        for band in ("<10k", "10k-100k", ">=100k"):
+            print(f"  {d + ' ' + band:16s}" + "".join(f"{lab[d, band, w]:15d}" for w in whiches))
+
     by = collections.defaultdict(list)
     for p, rs in runs.items():
         for r in rs:
             if r["status"] == "proved":
-                by[(meta[p]["domain"], meta[p].get("ops"), r["flatten"])].append(r["cps"])
-    if by:
-        print("\nproved runs: median / max CPs by domain, ops, flattening")
-        for k in sorted(by, key=lambda k: (k[0], k[1] or 0, k[2])):
-            xs = sorted(by[k])
-            print(f"  {k[0]} ops={k[1]} flat={'on' if k[2] else 'off'}: n={len(xs)} "
-                  f"median {xs[len(xs) // 2]} max {xs[-1]}")
+                by[(dom[p], r["flatten"])].append(r["cps"])
+    print("\nproved runs: CPs by flattening (median, 90th percentile, max)")
+    for k in sorted(by):
+        xs = sorted(by[k])
+        print(f"  {k[0]} flat={'on ' if k[1] else 'off'}: n={len(xs):5d} median {xs[len(xs) // 2]:7d} "
+              f"p90 {xs[int(0.9 * len(xs))]:7d} max {xs[-1]:7d}")
+
     if args.write_lists:
         os.makedirs(args.write_lists, exist_ok=True)
         for b in names:
             with open(os.path.join(args.write_lists, f"{b}.txt"), "w") as f:
                 f.writelines(f"{p}\n" for p in sorted(buckets) if buckets[p] == b)
         print(f"\nlists -> {args.write_lists}/{{{','.join(names)}}}.txt")
+    if args.show_open:
+        print("\nopen problems")
+        for p in sorted(b for b in buckets if buckets[b] == "open"):
+            r = sel[p]
+            rel = "<=" if r["kind"] == "leq" else "="
+            print(f"  {p}  {r['lhs']} {rel} {r['rhs']}")
 
 
 # ------------------------------------------------------- concrete algebras
@@ -975,6 +1033,9 @@ def main() -> None:
     r.add_argument("--max-cps", type=int, default=1_000_000,
                    help="the triage's CP budget (to tell saturation from running out)")
     r.add_argument("--write-lists", default="", metavar="DIR")
+    r.add_argument("--data-dir", default="data/reslat",
+                   help="selection the problems were written from (sizes, kinds)")
+    r.add_argument("--show-open", action="store_true", help="print the open problems")
     t = sub.add_parser("selftest", help="check both deciders against concrete algebras")
     t.add_argument("--count", type=int, default=500)
     t.add_argument("--max-ops", type=int, default=8)
