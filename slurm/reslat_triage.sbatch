@@ -17,6 +17,9 @@
 #   PROOFS     1 to keep proofs, 0 not to (default 1 with NT_STORE, else 0)
 #   LIST       file of problem names to run (default all)
 #   FLATTEN    both, on or off (default both)
+# Long runs use a lot of memory: with WALL=3600 and 32 workers a shard ran
+# out of memory (job 10644159_0), so give fewer workers for long runs:
+#   EXTRA_ARGS="--workers 8"   (the last --workers wins)
 # Resume unfinished shards with the same SHARDS and --resume:
 #   sbatch --array=2,5 --export=ALL,SHARDS=8,EXTRA_ARGS=--resume slurm/reslat_triage.sbatch
 #SBATCH -J nt-reslat-triage
