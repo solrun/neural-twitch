@@ -49,6 +49,14 @@ Usage:
   python -m nt.reslat write data/reslat --out-dir $TMPDIR/reslat [--shard K/N]
   # after nt.expand base: trivial / label / open / saturated per variety
   python -m nt.reslat report out/reslat/triage_*.jsonl
+  # labels: triage rows of the pool (label problems needing >= 10k CPs
+  # under the better setting; pool.txt from report --write-lists), then
+  # nt.expand abstract and nt.single_runs --sets as for other problems
+  python -m nt.reslat select out/reslat/*.jsonl --problems out/reslat/lists/pool.txt \\
+      --out out/reslat/pool_rows.jsonl
+  # hint check: the same hand-picked hints for a list of problems, as an
+  # nt.single_runs --sets file (base, whole set, each hint alone)
+  python -m nt.reslat hints --problems RLT-00999,RLT-02679 --out-dir $NT_STORE/reslat/hints
   # self-test of both deciders against concrete algebras
   python -m nt.reslat selftest
 
@@ -716,13 +724,87 @@ def cmd_report(args) -> None:
         for b in names:
             with open(os.path.join(args.write_lists, f"{b}.txt"), "w") as f:
                 f.writelines(f"{p}\n" for p in sorted(buckets) if buckets[p] == b)
-        print(f"\nlists -> {args.write_lists}/{{{','.join(names)}}}.txt")
+        pool = sorted(p for p, rs in runs.items() if buckets[p] == "label"
+                      and min(r["cps"] for r in rs if r["status"] == "proved") >= args.min_cps)
+        with open(os.path.join(args.write_lists, "pool.txt"), "w") as f:
+            f.writelines(f"{p}\n" for p in pool)
+        print(f"\nlists -> {args.write_lists}/{{{','.join(names)}}}.txt, and pool.txt: "
+              f"{len(pool)} label problems needing >= {args.min_cps} CPs under the better setting")
     if args.show_open:
         print("\nopen problems")
         for p in sorted(b for b in buckets if buckets[b] == "open"):
             r = sel[p]
             rel = "<=" if r["kind"] == "leq" else "="
             print(f"  {p}  {r['lhs']} {rel} {r['rhs']}")
+
+
+# ------------------------------------------------------- labels and hints
+
+def read_names(spec: str) -> list[str]:
+    """Problem names from a file (one per line) or a comma-separated list."""
+    if os.path.exists(spec):
+        return [l.strip() for l in open(spec) if l.strip()]
+    return [x for x in spec.split(",") if x]
+
+
+def cmd_select(args) -> None:
+    """Rows of nt.expand base output (the triage) for the given problems, as
+    input for nt.expand abstract and as --calibration for nt.single_runs."""
+    want = set(read_names(args.problems))
+    n, seen = 0, set()
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    with open(args.out, "w") as out:
+        for p in args.runs:
+            for line in open(p):
+                if line.strip():
+                    r = json.loads(line)
+                    if r["problem"] in want:
+                        out.write(line if line.endswith("\n") else line + "\n")
+                        n += 1
+                        seen.add(r["problem"])
+    print(f"{n} rows for {len(seen)} of {len(want)} problems -> {args.out}")
+    if len(seen) < len(want):
+        print(f"  no rows for {len(want) - len(seen)} problems "
+              f"(e.g. {sorted(want - seen)[0]})")
+
+
+# Hand-picked hints for the check that the open problems are hard for want
+# of lemmas: the residuation counits, nested residuals (the shape of the
+# short open goals) and multiplication over join (monotonicity).
+DEFAULT_HINTS = {
+    "rl": ["multiply(X0, ldiv(X0, X1))", "multiply(rdiv(X0, X1), X1)",
+           "ldiv(X0, rdiv(X1, X2))", "multiply(X0, join(X1, X2))",
+           "multiply(join(X0, X1), X2)", "join(multiply(X0, X1), X2)"],
+    "lg": ["least_upper_bound(X0, identity)", "greatest_lower_bound(X0, identity)",
+           "multiply(X0, least_upper_bound(X1, X2))", "inverse(least_upper_bound(X0, X1))",
+           "multiply(X0, inverse(X1))"],
+}
+
+
+def cmd_hints(args) -> None:
+    """Problem files and an nt.single_runs --sets file that gives every listed
+    problem the same hand-picked hints (base, the whole set, and each hint
+    alone)."""
+    sel = {r["problem"]: r for r in read_selection(args.data_dir, ["rl", "lg"])}
+    names = read_names(args.problems)
+    unknown = [p for p in names if p not in sel]
+    if unknown:
+        raise SystemExit(f"{len(unknown)} problems not in {args.data_dir}: {unknown[:5]}")
+    rows = []
+    for p in names:
+        r = sel[p]
+        hints = args.hint or DEFAULT_HINTS[r["variety"]]
+        dom = DOMAIN[r["variety"]]
+        d = os.path.join(args.out_dir, dom)
+        os.makedirs(d, exist_ok=True)
+        path = os.path.abspath(os.path.join(d, p + ".p"))
+        with open(path, "w") as f:
+            f.write(problem_text(r))
+        rows.append({"problem": p, "path": path, "domain": dom, "abstractions": hints})
+    sets = args.sets or os.path.join(args.out_dir, "hint_sets.jsonl")
+    with open(sets, "w") as f:
+        f.writelines(json.dumps(r) + "\n" for r in rows)
+    print(f"{len(rows)} problems, hints {rows[0]['abstractions'] if rows else []} -> {sets}")
 
 
 # ------------------------------------------------------- concrete algebras
@@ -1036,14 +1118,26 @@ def main() -> None:
     r.add_argument("--data-dir", default="data/reslat",
                    help="selection the problems were written from (sizes, kinds)")
     r.add_argument("--show-open", action="store_true", help="print the open problems")
+    sl = sub.add_parser("select", help="triage rows for a list of problems")
+    sl.add_argument("runs", nargs="+")
+    sl.add_argument("--problems", required=True, help="file (one name per line) or comma list")
+    sl.add_argument("--out", required=True)
+    hn = sub.add_parser("hints", help="the same hand-picked hints for a list of problems")
+    hn.add_argument("--problems", required=True, help="file (one name per line) or comma list")
+    hn.add_argument("--hint", action="append", default=[],
+                    help="a hint term, e.g. 'multiply(X0, ldiv(X0, X1))' (repeat; "
+                         "default: DEFAULT_HINTS for the problem's variety)")
+    hn.add_argument("--out-dir", required=True, help="where the problem files go")
+    hn.add_argument("--sets", default="", help="default OUT_DIR/hint_sets.jsonl")
+    hn.add_argument("--data-dir", default="data/reslat")
     t = sub.add_parser("selftest", help="check both deciders against concrete algebras")
     t.add_argument("--count", type=int, default=500)
     t.add_argument("--max-ops", type=int, default=8)
     t.add_argument("--samples", type=int, default=60)
     t.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
-    {"build": cmd_build, "write": cmd_write, "report": cmd_report,
-     "selftest": cmd_selftest}[args.cmd](args)
+    {"build": cmd_build, "write": cmd_write, "report": cmd_report, "select": cmd_select,
+     "hints": cmd_hints, "selftest": cmd_selftest}[args.cmd](args)
 
 
 if __name__ == "__main__":

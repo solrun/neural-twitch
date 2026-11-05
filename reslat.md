@@ -136,6 +136,46 @@ the first triage, 28 in the rerun) and are open by a deterministic
 criterion; 8 timed out after an hour without reaching it. The short RL
 showcase problems (RLT-00999, RLT-02679, RLT-01229) are among the open.
 
+## Labels and hint check (set up 2026-11-05)
+
+**Labels** for the pool: label problems needing >= 10k CPs under the better
+setting (1,651: LGR 1,041, RLT 610). Same pipeline as the TPTP problems
+(README, "Growing the dataset"): Twitch's abstraction extraction on the
+triage proofs, then `nt.single_runs --sets` (factor 0.5, both flattening
+settings, 6M CPs, 2400 s). Start with a pilot of 100 sets to measure set
+sizes, run times and memory before the full array.
+
+    # pool list, and the pool's triage rows (proofs; also the calibration)
+    python -m nt.reslat report out/reslat/triage_*.jsonl out/reslat/open_long_*.jsonl \
+        --write-lists out/reslat/lists
+    python -m nt.reslat select out/reslat/triage_*.jsonl out/reslat/open_long_*.jsonl \
+        --problems out/reslat/lists/pool.txt --out out/reslat/pool_rows.jsonl
+    # abstraction sets (Stitch; in the Python 3.12 venv)
+    srun -c 32 -t 4:00:00 python -m nt.expand abstract out/reslat/pool_rows.jsonl \
+        --out out/reslat/sets.jsonl
+    # pilot, then the full array
+    shuf -n 100 --random-source=out/reslat/sets.jsonl out/reslat/sets.jsonl > out/reslat/sets_pilot.jsonl
+    sbatch --array=0-3 --export="ALL,MAX_CPS=6000000,SETS=out/reslat/sets_pilot.jsonl,NAME=reslat_pilot,EXTRA_ARGS=--weights f0.5 --wall-timeout 2400 --workers 16 --calibration out/reslat/pool_rows.jsonl" \
+        slurm/single_runs.sbatch
+
+**Hint check.** The short open RL problems have three-step proofs from
+x(x\y) <= y, (y/x)x <= y and monotonicity of multiplication. If they are
+hard for want of these lemmas, hints should crack them. `nt.reslat hints`
+gives every listed problem the same six hints (`DEFAULT_HINTS["rl"]`:
+`multiply(X0, ldiv(X0, X1))`, `multiply(rdiv(X0, X1), X1)`,
+`ldiv(X0, rdiv(X1, X2))`, `multiply(X0, join(X1, X2))`,
+`multiply(join(X0, X1), X2)`, `join(multiply(X0, X1), X2)`), and
+`nt.single_runs` runs the base, the whole set and each hint alone. Budget
+1M CPs, the triage's, so "proved" means "proved where plain Twee was not".
+
+    grep RLT out/reslat/lists/open.txt > out/reslat/lists/open_rlt.txt
+    python -m nt.reslat hints --problems out/reslat/lists/open_rlt.txt \
+        --out-dir $NT_STORE/reslat/hints --sets out/reslat/hint_sets.jsonl
+    sbatch --array=0-3 --export="ALL,MAX_CPS=1000000,SETS=out/reslat/hint_sets.jsonl,NAME=reslat_hints,EXTRA_ARGS=--weights f0.5 --wall-timeout 1200 --workers 8" \
+        slurm/single_runs.sbatch
+
+26 problems x 2 settings x 8 runs = 416 runs, at most about 4 h per shard.
+
 The first report printed `ops=None` (nt.expand base output does not carry
 the manifest's fields). The report now reads sizes from the selection and
 splits the buckets by size, kind and variables, and the label bucket by
