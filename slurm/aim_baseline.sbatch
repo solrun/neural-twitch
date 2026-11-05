@@ -5,11 +5,17 @@
 #   mkdir -p logs out/aim
 #   sbatch -A C3SE2026-1-12 --array=0-15 slurm/aim_baseline.sbatch
 #   python -m nt.aim report out/aim/base_*.jsonl --write-lists out/aim/lists
+# Proofs of the solved problems only:
+#   sbatch --array=0-15 --export=ALL,LIST=out/aim/lists/twee_alloc_either.txt,PROOFS=1,NAME=proofs \
+#       slurm/aim_baseline.sbatch
 # Each task unpacks the TPTP files from the tarball into node-local $TMPDIR
 # (61,800 files; nothing lands on home or NT_STORE), in a directory named AIM
 # so problem ids are AIM-<name>.
 # Options (--export=ALL,...):
 #   TARBALL    problems tarball with problems/tptp/*.p (default $NT_STORE/aim/problems.tar.gz)
+#   LIST       file of problem names to run, one per line, with or without the
+#              AIM- prefix and .p suffix (default all), e.g. the solved list
+#              from `nt.aim report --write-lists` to rerun them with PROOFS=1
 #   WALL       wall cap in seconds per run (default 10; the report's 1 s budgets are
 #              computed from allocation and CPU time, the cap only bounds the cost)
 #   MAX_CPS    CP budget per run (default unlimited)
@@ -40,6 +46,15 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/AIM"
 tar xzf "$TARBALL" -C "$WORK/AIM" --strip-components=2 --wildcards 'problems/tptp/*.p'
 echo "$(find "$WORK/AIM" -name '*.p' | wc -l) problems unpacked"
+if [ -n "${LIST:-}" ]; then
+    # keep only the listed problems, before sharding, so shards stay balanced
+    sed -e 's/^AIM-//' -e 's/\.p$//' -e '/^[[:space:]]*$/d' "$LIST" | sort -u > "$WORK/keep"
+    find "$WORK/AIM" -name '*.p' -printf '%f\n' | sed 's/\.p$//' | sort > "$WORK/all"
+    missing=$(comm -23 "$WORK/keep" "$WORK/all" | wc -l)
+    [ "$missing" = 0 ] || echo "warning: $missing listed problems not in the tarball" >&2
+    comm -13 "$WORK/keep" "$WORK/all" | sed "s|^|$WORK/AIM/|; s|\$|.p|" | xargs -r rm -f
+    echo "$(find "$WORK/AIM" -name '*.p' | wc -l) problems kept from $LIST"
+fi
 
 if [ "${PROOFS:-0}" = 1 ]; then
     PROOF_ARGS=(--proof-dir "${NT_STORE:?PROOFS=1 needs NT_STORE}/aim/proofs")
