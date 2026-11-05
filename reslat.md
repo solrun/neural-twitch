@@ -121,21 +121,20 @@ Breakdown (second report):
 
 **Rerun of the open flattening-on timeouts** (51 problems, flattening on,
 1 h wall cap, same 1M CP budget, `NAME=open_long`, job 10644159): 15
-proved, all expensive (14 LGR, 1 RLT: RLT-01280). Counts so far:
+proved, all expensive (14 LGR, 1 RLT: RLT-01280). Final counts:
 
 | domain | trivial | label | label >= 10k CPs (better setting) | open |
 |---|---|---|---|---|
 | LGR | 2,276 | 2,641 | 1,041 | 83 |
 | RLT | 3,041 | 1,933 | 610 | 26 |
 
-**Not final:** shard 0 of the rerun ran out of memory after an hour (32
-Twee processes of up to an hour each). Problems still running then have no
-new result and count as open on their old 300 s timeout, so 109 open is an
-upper bound. To do: rerun shard 0 with `--resume --workers 8` (see the
-header of `slurm/reslat_triage.sbatch`), then the report again. Of the open
-problems, 73 used up the 1M CP budget with flattening on in the first
-triage (54 LGR, 19 RLT); those are open whatever the rerun gives. The short
-RL showcase problems (RLT-00999, RLT-02679, RLT-01229) are among the open.
+**Final.** Shard 0 ran out of memory after an hour (32 Twee processes of up
+to an hour each) and was resumed with `--resume --workers 8`. All 51 now
+have a 1 h run: 15 proved, 28 used up the 1M CP budget, 8 timed out again.
+So of the 109 open, 101 used up the 1M CP budget with flattening on (73 in
+the first triage, 28 in the rerun) and are open by a deterministic
+criterion; 8 timed out after an hour without reaching it. The short RL
+showcase problems (RLT-00999, RLT-02679, RLT-01229) are among the open.
 
 The first report printed `ops=None` (nt.expand base output does not carry
 the manifest's fields). The report now reads sizes from the selection and
