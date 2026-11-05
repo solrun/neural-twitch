@@ -347,8 +347,13 @@ def _load_twitch(twitch_dir: str) -> None:
     if not os.path.isdir(os.path.join(src, "stitch")):
         raise SystemExit(f"Twitch sources not found under {src}; set TWITCH_DIR")
     sys.path.insert(0, src)
-    import utils as tw_utils                                     # noqa: E402
-    from stitch.Abstractions import Stitch_Abstractions        # noqa: E402
+    try:
+        import utils as tw_utils                                 # noqa: E402
+        from stitch.Abstractions import Stitch_Abstractions    # noqa: E402
+    except ImportError as e:      # same for every proof: stop instead of failing each
+        raise SystemExit(f"cannot import Twitch's extraction code ({e}); run abstract in "
+                         "the Stitch venv (pip install -r requirements.txt: stitch_core, "
+                         "python-dotenv)")
     _TWITCH.update(utils=tw_utils, stitch=Stitch_Abstractions)
 
 
