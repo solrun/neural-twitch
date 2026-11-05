@@ -119,6 +119,18 @@ Breakdown (second report):
   which the equational axioms give only indirectly. These are good
   showcase problems for lemma or abstraction hints.
 
+**Rerun of the open flattening-on timeouts** (51 problems, flattening on,
+1 h wall cap, same 1M CP budget): 15 proved, all expensive (14 LGR, 1 RLT:
+RLT-01280). Final counts:
+
+| domain | trivial | label | label >= 10k CPs (better setting) | open |
+|---|---|---|---|---|
+| LGR | 2,276 | 2,641 | 1,041 | 83 |
+| RLT | 3,041 | 1,933 | 610 | 26 |
+
+The 109 open problems are the hard set; the short RL showcase problems
+(RLT-00999, RLT-02679, RLT-01229) are still open.
+
 The first report printed `ops=None` (nt.expand base output does not carry
 the manifest's fields). The report now reads sizes from the selection and
 splits the buckets by size, kind and variables, and the label bucket by
