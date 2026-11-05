@@ -87,6 +87,21 @@ def test_mined_rule_with_minimal_constant(tmp_path):
     assert why["minimal constant -> variable"] == 1 and not why["unparsable"]
 
 
+def test_deeply_nested_rule_is_dropped_not_crashing(tmp_path):
+    from nt.expand import mine_candidates
+    prob = tmp_path / "COL001-1.p"
+    prob.write_text("cnf(a, axiom, f(f(X)) = X).\ncnf(goal, negated_conjecture, f(a) != a).\n")
+    deep = "f(" * 5000 + "X" + ")" * 5000
+    log = tmp_path / "l.log"
+    log.write_text(f"1. f(f(X)) -> X\n2. {deep} -> X\n3. f(f(f(X))) -> f(X)\n")
+    row = {"log": str(log), "flatten": True, "status": "budget", "cps": 1}
+    cands, why = mine_candidates(str(prob), [row], "", 0.0, 40, True)
+    assert why["too large"] == 1 and [c["rule_id"] for c in cands] == [3]
+    # without a size limit the parser's recursion limit is caught instead
+    cands, why = mine_candidates(str(prob), [row], "", 0.0, 0, True)
+    assert why["too deep"] == 1 and [c["rule_id"] for c in cands] == [3]
+
+
 def test_pick():
     c = list(range(10))
     assert pick(c, 3, "latest") == [0, 1, 2]

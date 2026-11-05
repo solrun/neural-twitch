@@ -298,6 +298,8 @@ def check_goal(ls: str, rs: str, sig: dict, known: set):
         l, r = parse(ls), parse(rs)
     except ParseError as e:
         return "unparsable", None, None, str(e)
+    except RecursionError:                    # nested beyond Python's stack
+        return "too deep", None, None, ""
     used = dict(symbols(l)) | dict(symbols(r))
     outside = sorted(f"{f}/{n}" for f, n in used.items() if sig.get(f) != n)
     if outside:
@@ -462,6 +464,7 @@ def parse_search_log(text: str) -> tuple[dict[int, tuple[str, str]], set[int]]:
 
 
 _MINIMAL = re.compile(r"(?<![\w$])\?(?![\w$])")
+_SYMBOL_TOKEN = re.compile(r"[\w$']+|\?")
 
 
 def replace_minimal(ls: str, rs: str) -> tuple[str, str, bool]:
@@ -497,6 +500,11 @@ def mine_candidates(problem_path: str, logs: list[dict], tptp_root: str | None,
                 continue
             if survivors_only and rid in deleted:
                 why["deleted later"] += 1
+                continue
+            # size (symbol and variable occurrences) from the string, so huge
+            # rules are dropped before the recursive parser sees them
+            if max_size and len(_SYMBOL_TOKEN.findall(ls + " " + rs)) > max_size:
+                why["too large"] += 1
                 continue
             ls, rs, had_minimal = replace_minimal(ls, rs)
             if had_minimal:
