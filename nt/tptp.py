@@ -133,8 +133,27 @@ def resolve_include(path: str, problem_path: str, tptp_root: str | None) -> str 
     return None
 
 
-def axiom_statements(problem_path: str, tptp_root: str | None = None) -> list[Statement]:
-    """All non-conjecture cnf statements of a problem, includes expanded.
+def is_conjecture_fact(st: Statement) -> bool:
+    """A positive unit equation with role negated_conjecture. Problems from a
+    non-unit conjecture (e.g. the ifeq-encoded ANA004-10) keep the facts from
+    the negated, skolemized theorem there: Twee uses them as axioms, and only
+    the disequation is the goal."""
+    if st.kind != "cnf" or st.role != "negated_conjecture":
+        return False
+    sides = equation_sides(st.formula)
+    return bool(sides) and not sides[2]
+
+
+def as_hypothesis(st: Statement) -> str:
+    """The statement's text with its role changed to hypothesis."""
+    return re.sub(r"(cnf\(\s*[^,\s]+\s*,\s*)negated_conjecture", r"\1hypothesis", st.text, count=1)
+
+
+def axiom_statements(problem_path: str, tptp_root: str | None = None,
+                     conjecture_facts: bool = False) -> list[Statement]:
+    """All non-conjecture cnf statements of a problem, includes expanded;
+    with conjecture_facts also the positive equations among the negated
+    conjecture clauses (see is_conjecture_fact).
     Raises FileNotFoundError if an include cannot be found."""
     tptp_root = tptp_root if tptp_root is not None else os.environ.get("TPTP_ROOT")
     out = []
@@ -145,7 +164,8 @@ def axiom_statements(problem_path: str, tptp_root: str | None = None) -> list[St
                 raise FileNotFoundError(f"{st.path} (included by {problem_path}); set TPTP_ROOT")
             out += [s for s in statements(open(p).read())
                     if s.kind == "cnf" and s.role != "negated_conjecture"]
-        elif st.kind == "cnf" and st.role != "negated_conjecture":
+        elif st.kind == "cnf" and (st.role != "negated_conjecture"
+                                   or (conjecture_facts and is_conjecture_fact(st))):
             out.append(st)
     return out
 
@@ -176,9 +196,12 @@ def skolemize(t, mapping: dict[str, str], fresh) -> App:
 
 
 def with_goal(problem_path: str, lhs: str, rhs: str, comment: str = "",
-              goal_name: str = "hindsight_goal", tptp_root: str | None = None) -> str:
+              goal_name: str = "hindsight_goal", tptp_root: str | None = None,
+              keep_conjecture_facts: bool = False) -> str:
     """The problem's text with its negated conjecture(s) replaced by
-    `lhs != rhs`, variables skolemized to fresh constants."""
+    `lhs != rhs`, variables skolemized to fresh constants. With
+    keep_conjecture_facts, positive equations among the negated conjecture
+    clauses stay, as hypotheses."""
     stmts = statements(open(problem_path).read())
     lt, rt = parse(lhs), parse(rhs)
     # fresh constants must avoid every symbol of the problem (includes too,
@@ -194,7 +217,9 @@ def with_goal(problem_path: str, lhs: str, rhs: str, comment: str = "",
     l = skolemize(lt, mapping, fresh)
     r = skolemize(rt, mapping, fresh)
     header = "".join(f"% {line}\n" for line in comment.splitlines())
-    body = [s.text for s in stmts
-            if not (s.kind == "cnf" and s.role == "negated_conjecture")]
+    body = [as_hypothesis(s) if keep_conjecture_facts and is_conjecture_fact(s) else s.text
+            for s in stmts
+            if not (s.kind == "cnf" and s.role == "negated_conjecture")
+            or (keep_conjecture_facts and is_conjecture_fact(s))]
     body.append(f"cnf({goal_name},negated_conjecture,\n    {l} != {r} ).")
     return header + "\n" + "\n\n".join(body) + "\n"

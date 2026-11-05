@@ -102,6 +102,34 @@ def test_deeply_nested_rule_is_dropped_not_crashing(tmp_path):
     assert why["too deep"] == 1 and [c["rule_id"] for c in cands] == [3]
 
 
+CONJ_FACTS = """cnf(ax, axiom, ifeq(X, X, Y, Z) = Y).
+cnf(c_1, negated_conjecture, less(n0, b) = true).
+cnf(c_2, negated_conjecture, ifeq(less(n0, X), true, less(n0, fp(X)), true) = true).
+cnf(goal, negated_conjecture, a2 != b2).
+"""
+
+
+def test_conjecture_facts_count_as_axioms_and_are_kept(tmp_path):
+    from nt import tptp
+    from nt.expand import mine_candidates
+    prob = tmp_path / "ANA004-10.p"
+    prob.write_text(CONJ_FACTS)
+    log = tmp_path / "l.log"
+    log.write_text("1. less(n0, b) -> true\n2. less(n0, fp(b)) -> true\n3. less(a2, X) -> true\n")
+    cands, why = mine_candidates(str(prob), [{"log": str(log), "flatten": True,
+                                              "status": "budget", "cps": 1}], "", 0.0, 0, True)
+    # rule 1 is a conjecture fact, rule 3 mentions the goal's constant a2
+    assert [c["lhs"] for c in cands] == ["less(n0, fp(b))"]
+    assert why["is an axiom"] == 1 and why["symbol outside the axioms"] == 1
+    out = tptp.with_goal(str(prob), "less(n0, fp(b))", "true", keep_conjecture_facts=True)
+    st = tptp.statements(out)
+    assert [(s.name, s.role) for s in st] == [
+        ("ax", "axiom"), ("c_1", "hypothesis"), ("c_2", "hypothesis"),
+        ("hindsight_goal", "negated_conjecture")]
+    # the default (hindsight) still drops every negated conjecture clause
+    assert "c_1" not in tptp.with_goal(str(prob), "less(n0, n0)", "true")
+
+
 def test_pick():
     c = list(range(10))
     assert pick(c, 3, "latest") == [0, 1, 2]

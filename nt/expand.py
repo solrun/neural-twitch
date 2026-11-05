@@ -272,10 +272,13 @@ def equation_key(lhs, rhs) -> str:
     return min(a, b)
 
 
-def axiom_context(problem_path: str, tptp_root: str | None) -> tuple[dict, set]:
+def axiom_context(problem_path: str, tptp_root: str | None,
+                  conjecture_facts: bool = False) -> tuple[dict, set]:
     """(signature, keys of the axioms' equations) of a problem: what a
-    standalone goal may mention, and which equations are not new."""
-    axioms = tptp.axiom_statements(problem_path, tptp_root)
+    standalone goal may mention, and which equations are not new. With
+    conjecture_facts, positive equations in the negated conjecture count as
+    axioms (tptp.is_conjecture_fact)."""
+    axioms = tptp.axiom_statements(problem_path, tptp_root, conjecture_facts)
     sig = tptp.signature(axioms)
     known = set()
     for st in axioms:
@@ -484,8 +487,10 @@ def mine_candidates(problem_path: str, logs: list[dict], tptp_root: str | None,
                     examples: dict | None = None) -> tuple[list[dict], collections.Counter]:
     """Distinct rules from the given search logs that are usable as
     standalone goals, latest first. Lateness is the rule's id over the last
-    id created in its run (rule ids count up as Twee creates rules)."""
-    sig, known = axiom_context(problem_path, tptp_root)
+    id created in its run (rule ids count up as Twee creates rules).
+    Twee uses positive equations in the negated conjecture as axioms, so
+    rules over their symbols count too (the mined problem keeps them)."""
+    sig, known = axiom_context(problem_path, tptp_root, conjecture_facts=True)
     why, best = collections.Counter(), {}
     for row in logs:
         rules, deleted = parse_search_log(twee.read_text(row["log"]))
@@ -580,7 +585,8 @@ def cmd_mine(args) -> None:
                 os.makedirs(os.path.dirname(path), exist_ok=True)
                 with open(path, "w") as f:
                     f.write(tptp.with_goal(src["path"], c["lhs"], c["rhs"], comment,
-                                           tptp_root=args.tptp_root))
+                                           tptp_root=args.tptp_root,
+                                           keep_conjecture_facts=True))
                 man.write(json.dumps({"problem": pid, "path": path, "domain": src["domain"],
                                       "source": prob, "lemma": f"{c['lhs']} = {c['rhs']}",
                                       **{k2: c[k2] for k2 in (
